@@ -28,6 +28,14 @@ const _etf = Instrument(
   type: 'etf',
   currency: 'EUR',
 );
+/// Same instrument, quoted in a currency its trades do not settle in.
+const _usdEtf = Instrument(
+  id: 'ins-1',
+  symbol: 'VWCE',
+  name: 'World ETF',
+  type: 'etf',
+  currency: 'USD',
+);
 const _salary = Category(id: 'cat-1', name: 'Salary', type: CategoryType.income);
 const _groceries = Category(
   id: 'cat-2',
@@ -43,17 +51,36 @@ const _transfer = Category(
 TrackerDocument _doc({
   List<Transaction> transactions = const [],
   List<Trade> trades = const [],
+  List<Price> prices = const [],
+  List<FxRate> fxRates = const [],
   Map<String, ImportStatus> imports = const {},
+  Map<String, int> currencies = const {'EUR': 2},
+  Instrument instrument = _etf,
 }) => TrackerDocument(
   trackerId: 'trk-1',
   baseCurrency: 'EUR',
-  currencies: const {'EUR': 2},
+  currencies: currencies,
   accounts: const {'acc-1': _checking, 'acc-2': _savings, 'acc-3': _broker},
   categories: const {'cat-1': _salary, 'cat-2': _groceries, 'cat-3': _transfer},
-  instruments: const {'ins-1': _etf},
+  instruments: {'ins-1': instrument},
   transactions: transactions,
   trades: trades,
+  prices: prices,
+  fxRates: fxRates,
   imports: imports,
+);
+
+Price _price(
+  int priceMinor, {
+  String pricedOn = '2026-03-01',
+  String provider = 'stooq',
+  String currency = 'EUR',
+}) => Price(
+  instrumentId: 'ins-1',
+  pricedOn: parseIsoDate(pricedOn),
+  priceMinor: priceMinor,
+  currency: currency,
+  provider: provider,
 );
 
 Transaction _tx(
@@ -62,6 +89,7 @@ Transaction _tx(
   String accountId = 'acc-1',
   String? categoryId,
   String? transferId,
+  String? tradeId,
   String importId = '',
   String bookedOn = '2026-03-01',
 }) => Transaction(
@@ -72,6 +100,7 @@ Transaction _tx(
   currency: 'EUR',
   categoryId: categoryId,
   transferId: transferId,
+  tradeId: tradeId,
   importId: importId,
 );
 
@@ -160,6 +189,19 @@ void main() {
       expect(flow.totalIncome, 0);
     });
 
+    test('excludes a trade settlement, which is not spending', () {
+      final flow = FinanceEngine.cashFlow(
+        _doc(
+          transactions: [
+            _tx('t1', -20100, accountId: 'acc-3', tradeId: 'tr1'),
+            _tx('t2', -700, categoryId: 'cat-2'),
+          ],
+        ),
+        currency: 'EUR',
+      );
+      expect(flow.expenseByCategory, {'cat-2': 700});
+    });
+
     test('counts a row whose transfer_id cell is blank', () {
       final flow = FinanceEngine.cashFlow(
         _doc(transactions: [_tx('t1', -700, categoryId: 'cat-2', transferId: '')]),
@@ -236,6 +278,133 @@ void main() {
         ),
       );
       expect(holdings, isEmpty);
+    });
+  });
+
+  group('marketValue', () {
+    Holding holdingOf(TrackerDocument doc) =>
+        FinanceEngine.holdings(doc).single;
+
+    test('values units at the latest price on or before the as-of date', () {
+      final doc = _doc(
+        trades: [_trade('tr1', TradeSide.buy, '0.5', 10000)],
+        prices: [
+          _price(20000, pricedOn: '2026-03-01'),
+          _price(30001, pricedOn: '2026-03-20'),
+          _price(99999, pricedOn: '2026-04-02'),
+        ],
+      );
+      // 0.5 x 300.01 = 150.005, rounded once away from zero.
+      expect(
+        FinanceEngine.marketValue(doc, holdingOf(doc),
+            provider: 'stooq', asOf: parseIsoDate('2026-03-31')),
+        (amount: 15001, currency: 'EUR'),
+      );
+      expect(
+        FinanceEngine.marketValue(doc, holdingOf(doc),
+            provider: 'stooq', asOf: parseIsoDate('2026-03-10')),
+        (amount: 10000, currency: 'EUR'),
+      );
+    });
+
+    test('falls back to a quote in the instrument reference currency', () {
+      // The position settles in EUR but the instrument is quoted in USD only.
+      final doc = _doc(
+        currencies: const {'EUR': 2, 'USD': 2},
+        instrument: _usdEtf,
+        trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
+        prices: [_price(11000, currency: 'USD')],
+      );
+      expect(
+        FinanceEngine.marketValue(doc, holdingOf(doc),
+            provider: 'stooq', asOf: parseIsoDate('2026-03-31')),
+        (amount: 22000, currency: 'USD'),
+      );
+    });
+
+    test('is unavailable, not zero, without a matching price', () {
+      final doc = _doc(
+        trades: [_trade('tr1', TradeSide.buy, '1', 10000)],
+        prices: [
+          _price(20000, provider: 'other'),
+          _price(20000, currency: 'USD'),
+          _price(20000, pricedOn: '2026-04-02'),
+        ],
+      );
+      expect(
+        FinanceEngine.marketValue(doc, holdingOf(doc),
+            provider: 'stooq', asOf: parseIsoDate('2026-03-31')),
+        isNull,
+      );
+    });
+  });
+
+  group('netWorth', () {
+    Minor? netWorth(TrackerDocument doc) => FinanceEngine.netWorth(
+      doc,
+      priceProvider: 'stooq',
+      rateProvider: 'ecb',
+      asOf: parseIsoDate('2026-03-31'),
+    );
+
+    // The buy's settlement cash leaves the account as its own transaction,
+    // linked by trade_id as `docs/spreadsheet-format.md` requires. Without it
+    // the funding cash would still be in the balance and every total below
+    // would be 200.00 too high.
+    final funded = [
+      _tx('t1', 20000, accountId: 'acc-3'),
+      _tx('t2', -20000, accountId: 'acc-3', tradeId: 'tr1'),
+    ];
+
+    test('sums cash and priced positions in the base currency', () {
+      // 200.00 funded and spent on 2 units, now quoted at 110.00 each.
+      expect(
+        netWorth(
+          _doc(
+            transactions: funded,
+            trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
+            prices: [_price(11000)],
+          ),
+        ),
+        22000,
+      );
+    });
+
+    test('converts a position quoted in a foreign currency', () {
+      // 2 units at 110.00 USD, converted at 1.1 USD per EUR, no cash left.
+      expect(
+        netWorth(
+          _doc(
+            currencies: const {'EUR': 2, 'USD': 2},
+            instrument: _usdEtf,
+            transactions: funded,
+            trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
+            prices: [_price(11000, currency: 'USD')],
+            fxRates: [
+              FxRate(
+                baseCurrency: 'EUR',
+                quoteCurrency: 'USD',
+                pricedOn: parseIsoDate('2026-03-01'),
+                rate: Decimal.parse('1.1'),
+                provider: 'ecb',
+              ),
+            ],
+          ),
+        ),
+        20000,
+      );
+    });
+
+    test('is unavailable, not zero, when a position has no price', () {
+      expect(
+        netWorth(
+          _doc(
+            transactions: funded,
+            trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
+          ),
+        ),
+        isNull,
+      );
     });
   });
 }

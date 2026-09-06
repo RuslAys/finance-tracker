@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Documentation plus the first implemented slice of the Flutter client: `app/lib/domain/` (canonical model, schema validation, exact decimals, finance engine) with tests in `app/test/domain/`. `app/pubspec.yaml` is a Flutter package using `flutter_lints`; run `flutter test` and `flutter analyze` from `app/`. `app/lib/storage` and `app/lib/features` are still empty and reserved. Adding storage, UI, import, or companion code is an explicit user decision, not a prerequisite for other work.
+Documentation plus the implemented slices of the Flutter client: `app/lib/domain/` (canonical model, schema validation, exact decimals, finance engine, FX conversion) and `app/lib/features/` (`TrackerController` plus read-only dashboard, transactions, and assets screens), with tests in `app/test/`. `app/pubspec.yaml` is a Flutter package using `flutter_lints`; run `flutter test` and `flutter analyze` from `app/`. `app/lib/storage` is still empty and reserved, so `main.dart` opens the synthetic `features/sample_tracker.dart` document. Adding storage, import, editing, or companion code is an explicit user decision, not a prerequisite for other work.
 
 `AGENTS.md` is the binding repository guidance; read it before changing anything. `CONTRIBUTING.md` holds the AI-agent pull-request rules.
 

@@ -59,13 +59,15 @@ Every currency used by `_meta.base_currency`, an account, transaction, trade, in
 
 ### `transactions`
 
-`id, account_id, booked_on, amount_minor, currency, payee, description, category_id, transfer_id, source, source_id, row_fingerprint, import_id, created_at`
+`id, account_id, booked_on, amount_minor, currency, payee, description, category_id, transfer_id, trade_id, source, source_id, row_fingerprint, import_id, created_at`
 
 Each account has one currency. A transaction's `currency` must equal its account currency. `amount_minor` is positive for money entering the account and negative for money leaving it. Income and expense categories may contain either sign: the normal income is positive and normal expense is negative, while the opposite sign is a reversal such as an income correction or merchant refund. Cash flow always uses the signed amount. Income reporting uses the category's signed sum; expense reporting uses its negated signed sum, so a positive refund reduces expense.
 
 Rows whose `import_id` references an import other than `committed` are excluded from all balances, cash-flow, holdings, and analytics until their import commits or reconciliation removes them.
 
 A `transfer_id` appears on exactly two `transfer` transactions in different accounts, with the same currency and amounts that sum to zero. Cross-currency cash transfers are not supported in v1.
+
+A blank `trade_id` is an ordinary cash row. A non-blank `trade_id` marks the row as the settlement of that trade and is validated against it, as described under `trades`. A settlement row is excluded from cash flow for the same reason a transfer is: buying an asset moves money between a user's own cash and their position rather than spending or earning it. It still changes the account balance.
 
 `source_id` is the bank's stable transaction ID when available. The unique bank identity is `(account_id, source, source_id)`. `row_fingerprint` is the deterministic fallback identity defined below when the bank does not provide a stable ID.
 
@@ -94,6 +96,10 @@ The composite key is `(source, symbol, exchange)`. A trade import resolves its b
 `side` is `buy` or `sell`; `units` is always positive. Trade notional is `units × price_minor`, rounded once to a minor unit using decimal round-half-up. Fees are already minor units and are added to buy cost or deducted from sell proceeds.
 
 V1 cost basis is FIFO per `(account_id, instrument_id, currency)`. Buy fees are capitalized into their lot cost; sell fees reduce proceeds. A sell cannot exceed available FIFO lots; short positions are not supported in v1.
+
+A trade row records only the position change. Its settlement cash movement is an ordinary `transactions` row in the same account, written by the same import; the app never derives cash from a trade, because a broker export that already contains both rows would otherwise be counted twice.
+
+Exactly one transaction carries each trade's `id` in its `trade_id`. That row is in the trade's account, uses the trade's currency, carries the trade's `import_id`, and its `amount_minor` equals `-(notional + fee_minor)` for a `buy` and `notional - fee_minor` for a `sell`, where `notional` is the rounded `units × price_minor` above. A settlement row never also carries a `transfer_id`: the offsetting leg would move the same cash into another account and fund the position twice. A trade with no settlement row, with more than one, or with a row whose account, currency, `import_id`, or amount disagrees is a validation error. Matching `import_id` values keep the pair visible together: a committed trade whose settlement is still pending would add a position while its cash debit stayed hidden. This is what makes a total that adds cash balances to position values, such as net worth, verifiable rather than assumed.
 
 `currency` is the settlement currency and must equal its account currency. `instruments.currency` is the instrument's reference currency and may differ. V1 requires a broker import to provide a price already converted to the settlement currency; it does not model foreign-currency settlement inside a trade.
 

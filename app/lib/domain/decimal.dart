@@ -138,6 +138,12 @@ class Decimal implements Comparable<Decimal> {
     return _alignedTo(scale).compareTo(other._alignedTo(scale));
   }
 
+  /// The exact value as `numerator / denominator`.
+  ///
+  /// FX resolution multiplies and inverts rates, so it needs the rational form
+  /// rather than an intermediate decimal that would have to round.
+  (BigInt, BigInt) get fraction => (_unscaled, _pow10(_scale));
+
   /// Multiplies by an integer amount, such as a price in minor units.
   Decimal timesInt(int value) =>
       Decimal._canonical(_unscaled * BigInt.from(value), _scale);

@@ -75,6 +75,7 @@ class Transaction {
     this.description = '',
     this.categoryId,
     this.transferId,
+    this.tradeId,
     this.source = 'manual',
     this.sourceId = '',
     this.rowFingerprint = '',
@@ -93,6 +94,9 @@ class Transaction {
   final String description;
   final String? categoryId;
   final String? transferId;
+
+  /// Set on the one row that settles a trade's cash; blank on a cash row.
+  final String? tradeId;
   final String source;
   final String sourceId;
   final String rowFingerprint;
@@ -105,6 +109,8 @@ class Transaction {
   String? get transferKey => _blankToNull(transferId);
 
   String? get categoryKey => _blankToNull(categoryId);
+
+  String? get tradeKey => _blankToNull(tradeId);
 }
 
 String? _blankToNull(String? value) =>
@@ -164,6 +170,42 @@ class Trade {
   final String importId;
 }
 
+class Price {
+  const Price({
+    required this.instrumentId,
+    required this.pricedOn,
+    required this.priceMinor,
+    required this.currency,
+    required this.provider,
+  });
+
+  final String instrumentId;
+  final DateTime pricedOn;
+  final Minor priceMinor;
+  final String currency;
+
+  /// Price source; a report never mixes providers.
+  final String provider;
+}
+
+class FxRate {
+  const FxRate({
+    required this.baseCurrency,
+    required this.quoteCurrency,
+    required this.pricedOn,
+    required this.rate,
+    required this.provider,
+  });
+
+  final String baseCurrency;
+  final String quoteCurrency;
+  final DateTime pricedOn;
+
+  /// Quote-currency units per one base-currency unit, as an exact decimal.
+  final Decimal rate;
+  final String provider;
+}
+
 class TrackerDocument {
   const TrackerDocument({
     required this.trackerId,
@@ -174,6 +216,8 @@ class TrackerDocument {
     this.instruments = const {},
     this.transactions = const [],
     this.trades = const [],
+    this.prices = const [],
+    this.fxRates = const [],
     this.imports = const {},
   });
 
@@ -187,6 +231,8 @@ class TrackerDocument {
   final Map<String, Instrument> instruments;
   final List<Transaction> transactions;
   final List<Trade> trades;
+  final List<Price> prices;
+  final List<FxRate> fxRates;
 
   /// Status of every `imports` row; rows of a non-committed import are excluded
   /// from every calculation until that import commits.

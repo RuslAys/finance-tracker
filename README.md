@@ -2,7 +2,7 @@
 
 An open-source, local-first finance tracker for mobile and web.
 
-The repository contains the design documentation and the first slice of the Flutter client: the canonical domain model, its validation, and the deterministic finance engine. Storage adapters, imports, UI, and the optional companion are not implemented yet.
+The repository contains the design documentation and the first slices of the Flutter client: the canonical domain model, its validation, the deterministic finance engine, and a read-only Material 3 UI over them. Storage adapters, imports, editing, and the optional companion are not implemented yet.
 
 ## AI-generated project
 
@@ -26,7 +26,7 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 ## Status
 
-`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, and the balance, cash-flow, and FIFO holdings calculations, with unit tests in `app/test/`. Run them with `flutter test` from `app/`.
+`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, the balance, cash-flow, and FIFO holdings calculations, and exact cross-currency conversion with instrument market value. `app/lib/features/` holds `TrackerController` and the dashboard, transactions, and assets screens; until a storage adapter exists the app opens a synthetic sample document. Tests live in `app/test/`; run them with `flutter test` from `app/`.
 
 ## License
 

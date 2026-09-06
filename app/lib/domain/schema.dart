@@ -62,6 +62,9 @@ List<ValidationError> validateTracker(TrackerDocument doc) {
   _validateCategories(doc, check);
   _validateTransactions(doc, check);
   _validateTrades(doc, check);
+  _validateTradeSettlements(doc, check);
+  _validatePrices(doc, check);
+  _validateFxRates(doc, check);
 
   return errors;
 }
@@ -237,5 +240,105 @@ void _validateTrades(TrackerDocument doc, _Check check) {
       check(doc.imports.containsKey(trade.importId), 'trades', trade.id,
           'Unknown import_id ${trade.importId}');
     }
+  }
+}
+
+/// Every trade settles through exactly one cash transaction that matches it.
+///
+/// Net worth adds cash balances to position values. Without this rule a trade
+/// whose settlement row is missing leaves the spent cash in the balance, and the
+/// total silently counts the same money twice.
+void _validateTradeSettlements(TrackerDocument doc, _Check check) {
+  final settlements = <String, List<Transaction>>{};
+  for (final transaction in doc.transactions) {
+    final tradeId = transaction.tradeKey;
+    if (tradeId == null) continue;
+    settlements.putIfAbsent(tradeId, () => []).add(transaction);
+
+    // A row that is both would settle the trade and move the same cash to
+    // another account, so the offsetting leg would fund the position twice.
+    check(
+      transaction.transferKey == null,
+      'transactions',
+      transaction.id,
+      'A trade settlement cannot also be a transfer leg',
+    );
+  }
+
+  final tradeIds = {for (final trade in doc.trades) trade.id};
+  settlements.forEach((tradeId, rows) {
+    if (tradeIds.contains(tradeId)) return;
+    for (final row in rows) {
+      check(false, 'transactions', row.id, 'Unknown trade_id $tradeId');
+    }
+  });
+
+  for (final trade in doc.trades) {
+    final rows = settlements[trade.id] ?? const <Transaction>[];
+    if (rows.length != 1) {
+      check(
+        false,
+        'trades',
+        trade.id,
+        'Trade needs exactly one settlement transaction, found ${rows.length}',
+      );
+      continue;
+    }
+    final row = rows.single;
+    check(row.accountId == trade.accountId, 'trades', trade.id,
+        'Settlement transaction is in account ${row.accountId}, not '
+        '${trade.accountId}');
+    check(row.currency == trade.currency, 'trades', trade.id,
+        'Settlement currency ${row.currency} differs from ${trade.currency}');
+
+    // Both rows are hidden or both are counted. A committed trade paired with a
+    // pending settlement would add the position while its cash debit stays
+    // invisible, which is exactly the overstatement this rule exists to stop.
+    check(row.importId == trade.importId, 'trades', trade.id,
+        'Settlement transaction has import_id "${row.importId}", not '
+        '"${trade.importId}"');
+
+    // Compared as BigInt: an amount that would overflow minor units is a
+    // mismatch to report, not an exception thrown out of validation.
+    final notional = trade.units.timesInt(trade.priceMinor).roundToBigInt();
+    final fee = BigInt.from(trade.feeMinor);
+    final expected = trade.side == TradeSide.buy
+        ? -(notional + fee)
+        : notional - fee;
+    check(BigInt.from(row.amountMinor) == expected, 'trades', trade.id,
+        'Settlement amount ${row.amountMinor} is not $expected');
+  }
+}
+
+void _validatePrices(TrackerDocument doc, _Check check) {
+  final keys = <String>{};
+  for (final price in doc.prices) {
+    final key = '${price.instrumentId}|${formatIsoDate(price.pricedOn)}'
+        '|${price.currency}|${price.provider}';
+    // A repeated key would make the latest observation depend on row order.
+    check(keys.add(key), 'prices', key, 'Duplicate composite key');
+    check(doc.instruments.containsKey(price.instrumentId), 'prices', key,
+        'Unknown instrument_id ${price.instrumentId}');
+    check(doc.currencies.containsKey(price.currency), 'prices', key,
+        'Currency ${price.currency} has no currencies row');
+    check(price.priceMinor >= 0, 'prices', key,
+        'price_minor must not be negative');
+    check(isExactMinor(price.priceMinor), 'prices', key,
+        'price_minor is outside the exact minor-unit range');
+  }
+}
+
+void _validateFxRates(TrackerDocument doc, _Check check) {
+  final keys = <String>{};
+  for (final rate in doc.fxRates) {
+    final key = '${rate.baseCurrency}|${rate.quoteCurrency}'
+        '|${formatIsoDate(rate.pricedOn)}|${rate.provider}';
+    check(keys.add(key), 'fx_rates', key, 'Duplicate composite key');
+    for (final code in [rate.baseCurrency, rate.quoteCurrency]) {
+      check(doc.currencies.containsKey(code), 'fx_rates', key,
+          'Currency $code has no currencies row');
+    }
+    // A zero or negative rate has no reciprocal, so no leg may hold one.
+    check(rate.rate > Decimal.zero, 'fx_rates', key, 'rate must be positive');
   }
 }
