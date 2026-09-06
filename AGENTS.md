@@ -2,7 +2,7 @@
 
 ## Current scope
 
-This repository is documentation and project layout only. Do not add application, Flutter, ADK, MCP, API, storage, or test implementation unless the user explicitly requests it.
+Implemented: the Flutter client's canonical domain layer in `app/lib/domain/` and its tests. Do not add storage, UI, import, ADK, MCP, or API implementation unless the user explicitly requests it.
 
 All changes are AI-generated or AI-assisted unless a human author states otherwise. Do not represent generated output as independently human-authored.
 

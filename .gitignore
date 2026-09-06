@@ -8,7 +8,7 @@
 .claude/
 build/
 data/
-imports/
+/imports/
 backups/
 
 # User financial data must never be staged from any repository path.
