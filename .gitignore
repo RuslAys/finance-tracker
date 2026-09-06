@@ -1,0 +1,24 @@
+.env
+.env.*
+*.env
+!.env.example
+.dart_tool/
+.idea/
+.vscode/
+.claude/
+build/
+data/
+imports/
+backups/
+
+# User financial data must never be staged from any repository path.
+*.xlsx
+*.xls
+*.csv
+*.ofx
+*.qif
+!app/test/fixtures/**/*.xlsx
+!app/test/fixtures/**/*.xls
+!app/test/fixtures/**/*.csv
+!app/test/fixtures/**/*.ofx
+!app/test/fixtures/**/*.qif
