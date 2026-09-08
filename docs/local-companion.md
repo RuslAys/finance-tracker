@@ -2,6 +2,8 @@
 
 The local companion is optional. It is not a hosted backend and does not become the finance data source of truth.
 
+It is not implemented and follows the core reporting, storage, and goals work in the [delivery order](product.md#delivery-order). The core helper works without it.
+
 ## Responsibilities
 
 - Run an ADK 2.x analytics workflow on a computed, read-only snapshot supplied by the Flutter app.
@@ -9,12 +11,14 @@ The local companion is optional. It is not a hosted backend and does not become 
 - Expose narrow, read-only MCP tools such as cash-flow, spending, and holdings summaries.
 - Connect to either a user-configured local OpenAI-compatible endpoint or a selected cloud provider.
 - Stream in-app chat responses and report the selected model's capabilities.
+- Explain client-computed personal or household reports, goals, and suggestions within the contributors' approved scope, preserving freshness and completeness caveats.
 
 ## Non-responsibilities
 
 - Persisting the user's tracker data.
 - Direct spreadsheet modification or any write-capable MCP tool.
 - Automatic transaction imports or financial actions.
+- Refreshing or consolidating source spreadsheets, continuously monitoring finances while the app is closed, or computing goal progress and authoritative suggestions.
 
 The Flutter app alone may apply user-confirmed edits and migrations through its storage adapter.
 

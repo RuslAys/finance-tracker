@@ -1,8 +1,8 @@
 # Finance Tracker
 
-An open-source, local-first finance tracker for mobile and web.
+An open-source, client-first financial helper for mobile and web: understand your finances, plan goals, and choose practical next steps using spreadsheets you control. Optional family features support shared accounts and goals.
 
-The repository contains the design documentation and the first slices of the Flutter client: the canonical domain model, its validation, the deterministic finance engine, and a read-only Material 3 UI over them. Storage adapters, imports, editing, and the optional companion are not implemented yet.
+Implemented: the Flutter finance domain, validation, deterministic calculations, and a read-only Material 3 UI over synthetic data. Storage, editing, imports, household membership, goals, monitoring, and AI integrations are planned.
 
 ## AI-generated project
 
@@ -10,13 +10,14 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 ## Product direction
 
-- Flutter application for iOS, Android, and web.
-- Finance calculations and bank-import validation run in the client.
-- A tracker is stored either in a local `.xlsx` workbook or one Google Sheet.
-- An optional local companion may later provide ADK analytics and an MCP interface for coding assistants.
+- Start with one personal tracker in a local `.xlsx` workbook or one Google Sheet; add household members and shared goals when needed.
+- Keep calculations, bank-import validation, and goal-based budgeting guidance in Flutter.
+- Add one-way consolidation of approved separate sources later; no automatic two-way sync.
+- Keep AI explanations optional; goals and actions must work without an LLM.
 
 ## Documentation
 
+- [Product rules and delivery order](docs/product.md)
 - [Architecture](docs/architecture.md)
 - [Flutter architecture](docs/flutter-architecture.md)
 - [User interface](docs/ui.md)

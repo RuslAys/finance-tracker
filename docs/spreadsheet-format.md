@@ -2,6 +2,8 @@
 
 Use the same workbook tabs and columns for a local `.xlsx` tracker and a Google Sheet. CSV is supported only as an import/export format because it cannot represent the related tables.
 
+This is the version 1 storage contract; adapters and imports are not implemented. The current domain implements its finance subset. Household and goal extensions below are planned and do not change the current `format_version` or imply reader/writer support.
+
 ## Rules
 
 - IDs are UUIDs; row numbers are never identifiers.
@@ -14,7 +16,7 @@ Use the same workbook tabs and columns for a local `.xlsx` tracker and a Google 
 
 ## Cell encoding and read normalization
 
-All exact-value fields are written as text cells: UUIDs, ISO dates, RFC 3339 UTC timestamps, currency codes, booleans, `*_minor` amounts, `trades.units`, and `fx_rates.rate`. Google Sheets writes these strings with `RAW` input; XLSX writers set the cell type to text. This prevents Sheets and Excel from silently storing exact decimals or timestamps as IEEE-754 values.
+All exact-value fields are written as text cells: UUIDs, ISO dates, RFC 3339 UTC timestamps, currency codes, booleans, `*_minor` amounts, `trades.units`, and `fx_rates.rate`. Google Sheets values API writes use strings with `RAW` input; cell updates through `spreadsheets.batchUpdate` set `userEnteredValue.stringValue`. XLSX writers set the cell type to text. This prevents Sheets and Excel from silently storing exact decimals or timestamps as IEEE-754 values.
 
 Readers normalize legacy cell values before validation:
 
@@ -125,13 +127,35 @@ Convert each stored decimal rate to the exact rational `unscaled_integer ÷ 10^f
 
 `status` is `pending`, `committed`, `failed`, or `cancelled`. `writer_token_hash` is lowercase hexadecimal SHA-256 of a CSPRNG token with at least 128 bits of entropy. Only the importing app session holds the token; the shared workbook stores its hash. `lease_updated_at` is an RFC 3339 UTC timestamp. A lease expires five minutes after `lease_updated_at`. A user may set a pending import to `cancelled` to abort it before any staged rows are written. The app sets `failed` on a validation or write failure, and at the start of a user-confirmed discard of an import with staged rows. A file hash blocks re-import only when a matching row is `committed`. Failed or cancelled imports never block a retry.
 
-An XLSX save writes data rows and the committed import row in one file replacement. Google Sheets has no equivalent multi-range transaction: it creates a `pending` import row with a token hash, expected row counts, and lease; the token holder refreshes the lease before each staged-row batch and before commit. Only a token whose SHA-256 matches the stored hash may stage rows or commit. Before commit, the writer re-reads its `pending` status, token hash, lease, row counts, and validation result, and aborts if its lease has expired or any value changed.
+An XLSX save writes data rows and the committed import row in one file replacement. Google Sheets supports atomic updates within one [`spreadsheets.batchUpdate` request](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate): validated data rows and the committed import row should be written together when they fit in one request, with exact values encoded as strings. Atomicity does not extend across separate requests or isolate a read/validate/write sequence from collaborators.
+
+For imports requiring several requests, the proposed staging protocol creates a `pending` import row with a token hash, expected row counts, and lease; the token holder refreshes the lease before each staged-row batch and before commit. The app permits staging or commit only when the token's SHA-256 matches the stored hash. Before commit, the writer re-reads its `pending` status, token hash, lease, row counts, and validation result, and aborts if its lease has expired or any value changed.
+
+This lease is cooperative recovery metadata, not a server-enforced lock or compare-and-swap. A re-read cannot prevent a collaborator from changing data immediately afterward. Before implementing shared writes, validate the write/recovery design with concurrent-edit and retry tests; do not claim this protocol prevents lost updates or duplicate imports. Initially permit one designated import writer at a time and require other editors to pause during import/recovery. Safe concurrent import arbitration remains deferred.
 
 On every open and before every import, the app reconciles every transaction and trade whose `import_id` references a non-`committed` import, not only pending leases. An unexpired pending lease is left untouched; an expired lease blocks new imports and presents recovery. A user may explicitly discard an expired import: the app first marks it `failed`, then deletes only rows bearing that `import_id`. Rows referencing a `failed` import are deleted during reconciliation. Rows referencing a `cancelled` import are also deleted as a defensive recovery path for interrupted or legacy state, even though normal cancellation occurs before staging. If deletion is interrupted, the next reconciliation resumes it. A conflict is reported instead of deleting if a re-read finds the import committed. A writer finding a changed status or token hash stops without committing. A new import runs only after reconciliation is complete.
 
 An explicit user-confirmed re-import may create a new import row with `override_of` set to the prior committed import ID and a non-empty `override_reason`. It still runs all row-level deduplication checks.
 
 For a new import, an existing `(account_id, source, source_id)` identity within the same entity is a duplicate only when `source_id` is non-empty. A matching `row_fingerprint` is always presented as a duplicate candidate for user resolution before commit, whether or not the incoming row has a source ID; the import must not silently add it. These rules apply to both `transactions` and `trades`.
+
+## Planned household and goal extensions
+
+The [product rules](product.md) define the behavior; the following are candidate tables for a future versioned format change, not additions accepted by the current domain:
+
+| Table | Required information |
+| --- | --- |
+| `members` | Stable member ID and display name |
+| `account_owners` | Unique account/member pairs; several owners indicate a joint account |
+| `goals` | Stable ID, name, target in minor units, currency, deadline; responsible member for shared goals |
+| `goal_allocations` | Stable ID, goal, funding account, and reserved amount in minor units |
+| `actions` | Stable ID, description, due date, optional goal, and status; responsible member for shared actions |
+
+Keep these records in the selected personal or household tracker. Personal goals and actions require no member record; `members` and `account_owners` are optional family extensions. Ownership is attribution, not permissions or expense splitting. Define allocation currency compatibility, available-fund validation, and release behavior before implementation. The initial savings-goal slice should use funding accounts in the goal's currency; cross-currency allocation is deferred. Allocations do not change balances, and marking an action done does not change allocations.
+
+Consolidation will need separate source tracker/entity provenance, explicit account/category mappings, and coverage/freshness metadata. Do not overload the existing bank `source`, `source_id`, or fingerprints with tracker identity. A regenerated household report does not become an editable master or overwrite goals/actions. Choose its exact encoding when implementing consolidation; the current schema requires both transfer legs in one document and does not support cross-currency transfers.
+
+Ship concrete columns, validation, migration/backup behavior, and runnable round-trip and finance checks together with the implementing release. Keep UUIDs, dates, minor-unit text encoding, and the no-formulas/no-external-links rules unchanged.
 
 ## Row fingerprints
 

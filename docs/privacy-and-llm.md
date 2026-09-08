@@ -6,11 +6,19 @@ Local workbook data stays on the user's device. Google Sheets data is governed b
 
 The app requests only the Google Sheets/Drive permissions required to open or create the selected tracker. The app must clearly show the selected spreadsheet before it reads or writes it.
 
+## Household sharing
+
+Member and account ownership fields describe attribution; they do not enforce access control. Anyone with access to a shared workbook or Sheet can access its included records. App filters, hidden tabs, and protected ranges do not make those records private. Google explicitly warns that [sheet protection is not a security measure](https://support.google.com/docs/answer/1218656?hl=en-GB).
+
+Keep private records in separate files. Later consolidation accepts only contributions approved by their owner for household sharing. Sharing a summary limits the reports the app can produce; it must not infer hidden transactions or silently request wider access. Exported household reports contain only the approved scope. Removing a source stops future access but cannot retract copies already shared.
+
+Permission to include data in a household view does not grant permission to send it to an LLM. Each contributor must approve that use and scope before their data enters an AI snapshot; otherwise exclude it and label the remaining coverage.
+
 ## LLM analytics
 
-An LLM receives only an explicitly approved, computed finance snapshot: totals, periods, categories, and selected holdings. It does not receive a raw bank file, OAuth token, or unrestricted spreadsheet access.
+An LLM receives only an explicitly approved, computed finance snapshot: totals, periods, categories, selected holdings, and selected goal/action summaries, with freshness and completeness markers. It does not receive a raw bank file, OAuth token, or unrestricted spreadsheet access.
 
-The model may explain trends and caveats. It must not create transactions, transfer money, or give instructions presented as personalized financial advice.
+The client may provide deterministic budgeting guidance for user-chosen goals, such as a required contribution or a spending change to review. An LLM may explain these results, assumptions, and alternatives. It must not invent financial inputs, calculate authoritative goal progress or affordability, create transactions, transfer money, execute trades, or present investment, tax, or legal recommendations as professional advice. Goals and actions work without an LLM, and invalid, stale, or incomplete inputs block affected suggestions.
 
 ## Local and cloud models
 

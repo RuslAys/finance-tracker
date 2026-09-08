@@ -8,7 +8,10 @@ All changes are AI-generated or AI-assisted unless a human author states otherwi
 
 ## Product constraints
 
+- Follow [product rules and delivery order](docs/product.md): a client-first financial helper for individuals, with optional family features. Personal tracking, goals, and explainable budgeting actions must not require household setup; add shared accounts/goals and one-way consolidation of approved separate sources incrementally.
 - The Flutter client owns finance calculations, validation, and bank-import handling.
+- Household ownership is attribution, not access control. Keep private records outside shared files.
+- Goals and actions must work without an LLM. Completing an action never moves money or increases goal progress; withhold affected suggestions when data is invalid, stale, or incomplete.
 - A tracker is stored in either a local `.xlsx` workbook or a Google Sheet; do not introduce automatic two-way synchronization.
 - Keep the spreadsheet schema in [docs/spreadsheet-format.md](docs/spreadsheet-format.md) portable: no macros, formulas, external links, floating-point money, or row-number identifiers.
 - The optional local companion is not a hosted backend and never owns the tracker data.

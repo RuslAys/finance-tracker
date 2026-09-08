@@ -10,12 +10,14 @@ Documentation plus the implemented slices of the Flutter client: `app/lib/domain
 
 ## Architecture
 
+Follow `docs/product.md`: build a client-first financial helper for individuals, with optional family features. Personal tracking and deterministic goals/actions require no household setup; add shared ownership/goals, then one-way consolidation of approved separate sources. Ownership and UI filters are not access controls. Completing an action does not move money or increase goal progress. Monitoring initially runs on refresh or edit in the open app; the companion does not continuously monitor sources.
+
 Client-first, no product-operated backend. The Flutter app owns all finance rules, import validation, and analytics; a tracker's source of truth is either a local `.xlsx` workbook or one Google Sheet — never both, and v1 has no automatic two-way sync. Native mobile cloud BYOK uses a user-provided key held in platform secure storage. The optional local companion (ADK analytics + read-only MCP tools) may hold its own provider credentials and operates on a computed read-only snapshot the app hands it; it never persists or writes tracker data.
 
 Two invariants shape nearly every design decision:
 
 - **Deterministic client code is the authority for money.** An LLM may explain a computed result, propose a schema migration, or summarize a snapshot. It never computes a balance, applies a migration, or writes a transaction. Every LLM-originated change runs through: proposal → compatibility check → user reviews diff → backup → apply → new schema version.
-- **The canonical model is the only thing that crosses a boundary.** Users may use a custom spreadsheet schema, normalized via a `mappings` tab whose `transform` values are a closed set (`identity`, `trim`, `date_iso`, `money_to_minor`, `decimal_string`, `account_alias`, `enum`) parameterized by declarative JSON, never executable code. MCP tools and analytics see the normalized canonical model, never custom columns, raw bank files, or OAuth tokens.
+- **Storage maps to the canonical model; external analytics receive only approved snapshots.** Users may use a custom spreadsheet schema, normalized via a `mappings` tab whose `transform` values are a closed set (`identity`, `trim`, `date_iso`, `money_to_minor`, `decimal_string`, `account_alias`, `enum`) parameterized by declarative JSON, never executable code. MCP tools and LLMs receive only a computed, scoped snapshot, never the canonical document, custom columns, raw bank files, or OAuth tokens. Contributors must approve including their data in an AI snapshot; household sharing alone is not that approval.
 
 ## Data rules
 

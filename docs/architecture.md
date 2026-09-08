@@ -2,13 +2,15 @@
 
 ## Goal
 
-The finance tracker is client-first: the Flutter application owns finance rules, import validation, and analytics. User data is not stored in a product-operated database.
+The client-first financial helper supports individual use with optional family features. Flutter owns finance rules, import validation, personal and household reports, goal progress, and deterministic budgeting suggestions. User data is not stored in a product-operated database. See [product rules and delivery order](product.md).
+
+Only the finance domain and read-only sample UI are implemented. Storage, household features, goals, consolidation, and the companion below describe planned work.
 
 ## Components
 
 ```text
 Flutter application
-├── domain: validation, balances, cash flow, holdings
+├── domain: validation, balances, cash flow, holdings, goals, suggestions
 ├── storage: local workbook or Google Sheets
 └── UI: mobile, web, and desktop
 
@@ -20,11 +22,13 @@ Optional local companion
 
 ## Boundaries
 
-- The app opens one tracker at a time.
+- Initially the app opens one tracker at a time. Personal tracking and goals need no household setup. Optional family features add members, joint accounts, and shared goals; a later household view may read approved contributions from separate trackers.
 - A tracker uses one source of truth: a local workbook or a Google Sheet.
 - Import/export moves data between sources; v1 has no automatic two-way sync.
 - The optional companion has no write capability and never modifies transactions or spreadsheets.
-- Financial calculations are deterministic client code. An LLM can explain calculated results but cannot be the authority for balances or gains.
+- Financial calculations, goal allocations, and suggestion rules are deterministic client code. An LLM can explain calculated results but cannot be the authority for balances, gains, goal progress, or affordability.
+- Ownership does not enforce privacy; shared-file access exposes its included records. Separate-source consolidation follows the [one-way consolidation rules](product.md#separate-trackers-and-consolidation-later).
+- Refresh and editing trigger monitoring in the open app. Continuous background monitoring is deferred; the companion never refreshes tracker sources.
 - Spreadsheet customisation is user-controlled. The app normalizes a compatible custom schema for its deterministic finance engine, then builds an explicitly approved, scoped snapshot for analytics, MCP tools, and LLMs.
 - Companion access, pairing, and snapshot lifetime follow the [local companion contract](local-companion.md#access-and-snapshot-lifetime).
 

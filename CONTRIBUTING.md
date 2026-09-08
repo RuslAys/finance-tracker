@@ -1,6 +1,6 @@
 # Contributing
 
-This project is in its planning stage. Contributions should first improve the documentation or open an issue describing the problem and proposed smallest solution.
+This project has an implemented finance domain and read-only sample UI. Follow the [product rules and delivery order](docs/product.md); propose new implementation through an issue describing the problem and smallest solution.
 
 Do not include real financial data, bank exports, API keys, or credentials in issues, pull requests, tests, or screenshots.
 
