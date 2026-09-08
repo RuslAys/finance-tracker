@@ -18,15 +18,37 @@ class TrackerController extends ChangeNotifier {
     this.priceProvider = 'demo',
     this.rateProvider = 'demo',
     DateTime? asOf,
+    DateTime? period,
   }) : _document = document,
-       asOf = asOf ?? todayUtc() {
+       asOf = asOf ?? todayUtc(),
+       _periodStart = monthStart(period ?? asOf ?? todayUtc()) {
     _recompute();
   }
 
-  /// The date every price and rate lookup resolves against.
+  /// The valuation date: balances, positions, prices and rates all resolve on
+  /// or before it, so every number on screen describes the same moment.
   final DateTime asOf;
   final String priceProvider;
   final String rateProvider;
+
+  DateTime _periodStart;
+
+  /// First day of the reported month, inclusive.
+  DateTime get periodStart => _periodStart;
+
+  /// Last day of the reported month, inclusive.
+  DateTime get periodEnd => monthEnd(_periodStart);
+
+  /// When the open results were last computed. Not a claim about how current
+  /// the underlying records are: nothing here fetches from a bank.
+  late DateTime refreshedAt;
+
+  /// Reports the month containing [day]; the valuation date is unchanged.
+  void selectMonth(DateTime day) {
+    _periodStart = monthStart(day);
+    _recompute();
+    notifyListeners();
+  }
 
   TrackerDocument _document;
   TrackerDocument get document => _document;
@@ -55,8 +77,10 @@ class TrackerController extends ChangeNotifier {
 
   /// Recomputes once per opened document rather than once per widget build.
   void _recompute() {
+    refreshedAt = DateTime.now();
     validationErrors = validateTracker(_document);
-    transactions = FinanceEngine.visibleTransactions(_document).toList()
+    transactions =
+        FinanceEngine.visibleTransactions(_document, asOf: asOf).toList()
       ..sort((a, b) {
         final byDate = b.bookedOn.compareTo(a.bookedOn);
         return byDate != 0 ? byDate : b.id.compareTo(a.id);
@@ -73,12 +97,15 @@ class TrackerController extends ChangeNotifier {
     // ArgumentError. Catching every error keeps the validation report on screen
     // instead of taking the app down with it.
     try {
-      balances = FinanceEngine.accountBalances(_document);
+      balances = FinanceEngine.accountBalances(_document, asOf: asOf);
       cashFlow = FinanceEngine.cashFlow(
         _document,
         currency: _document.baseCurrency,
+        from: periodStart,
+        to: periodEnd,
+        fx: _fx,
       );
-      holdings = FinanceEngine.holdings(_document);
+      holdings = FinanceEngine.holdings(_document, asOf: asOf);
       netWorthMinor = FinanceEngine.netWorth(
         _document,
         priceProvider: priceProvider,
@@ -132,3 +159,8 @@ DateTime todayUtc() {
   final now = DateTime.now();
   return DateTime.utc(now.year, now.month, now.day);
 }
+
+DateTime monthStart(DateTime day) => DateTime.utc(day.year, day.month, 1);
+
+/// Day zero of the next month is the last day of this one, leap years included.
+DateTime monthEnd(DateTime day) => DateTime.utc(day.year, day.month + 1, 0);

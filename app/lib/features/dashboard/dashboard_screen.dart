@@ -17,6 +17,41 @@ String _balanceText(TrackerController controller, Account account) {
         );
 }
 
+/// A total is absent when a row of the period had no rate; showing a number
+/// then would present a partial month as the whole one.
+String _flowText(Minor? amount, String currency, int minorUnit) =>
+    amount == null ? 'Unavailable' : formatMinor(amount, currency, minorUnit);
+
+/// Moves the report one month at a time and names the month it shows.
+class _MonthSelector extends StatelessWidget {
+  const _MonthSelector({required this.controller});
+
+  final TrackerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = controller.periodStart;
+    return ListTile(
+      leading: IconButton(
+        icon: const Icon(Icons.chevron_left),
+        onPressed: () =>
+            controller.selectMonth(DateTime.utc(start.year, start.month - 1, 1)),
+        tooltip: 'Previous month',
+      ),
+      title: Text(
+        formatIsoDate(start).substring(0, 7),
+        textAlign: TextAlign.center,
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.chevron_right),
+        onPressed: () =>
+            controller.selectMonth(DateTime.utc(start.year, start.month + 1, 1)),
+        tooltip: 'Next month',
+      ),
+    );
+  }
+}
+
 /// Net worth, account balances, and cash flow of the open tracker.
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key, required this.controller});
@@ -78,26 +113,43 @@ class DashboardScreen extends StatelessWidget {
             ),
           if (controller.financeError == null) ...[
             const _SectionHeader('Cash flow'),
+            _MonthSelector(controller: controller),
+            if (!flow.isComplete)
+              _MessageCard(
+                icon: Icons.help_outline,
+                color: theme.colorScheme.error,
+                title: 'Cash flow unavailable for this month',
+                message:
+                    'No ${controller.rateProvider} rate to $base on the '
+                    'booking date of '
+                    '${flow.unconvertedCurrencies.join(', ')} records. A '
+                    'total without them would understate the month.',
+              ),
             ListTile(
               title: const Text('Income'),
-              trailing: Text(formatMinor(flow.totalIncome, base, baseUnit)),
+              trailing: Text(_flowText(flow.totalIncome, base, baseUnit)),
             ),
             ListTile(
               title: const Text('Expense'),
-              trailing: Text(formatMinor(flow.totalExpense, base, baseUnit)),
+              trailing: Text(_flowText(flow.totalExpense, base, baseUnit)),
             ),
             ListTile(
               title: Text('Net', style: theme.textTheme.titleMedium),
               trailing: Text(
-                formatMinor(flow.net, base, baseUnit),
+                _flowText(flow.net, base, baseUnit),
                 style: theme.textTheme.titleMedium,
               ),
             ),
           ],
-          const Padding(
-            padding: EdgeInsets.only(top: 24),
+          Padding(
+            padding: const EdgeInsets.only(top: 24),
             child: Text(
-              'Sample data. Opening a workbook or Google Sheet is not '
+              // Neither line claims the records are complete through today:
+              // nothing here fetches from a bank, and no stored field says how
+              // far the user's own entry has got.
+              'Valued on ${formatIsoDate(controller.asOf)}, computed at '
+              '${controller.refreshedAt.toLocal().toString().substring(11, 16)}'
+              '.\nSample data. Opening a workbook or Google Sheet is not '
               'implemented yet.',
               textAlign: TextAlign.center,
             ),

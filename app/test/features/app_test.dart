@@ -1,4 +1,5 @@
 import 'package:finance_tracker/app.dart';
+import 'package:finance_tracker/domain/decimal.dart';
 import 'package:finance_tracker/domain/models.dart';
 import 'package:finance_tracker/features/format.dart';
 import 'package:finance_tracker/features/sample_tracker.dart';
@@ -36,6 +37,66 @@ void main() {
     expect(controller.balances['acc-broker'], 50000 - invested);
   });
 
+  test('reports one month at a time and converts on the booking date', () {
+    final doc = TrackerDocument(
+      trackerId: 'periods',
+      baseCurrency: 'EUR',
+      currencies: const {'EUR': 2, 'USD': 2},
+      accounts: const {
+        'acc-1': Account(
+          id: 'acc-1',
+          name: 'Checking',
+          type: 'cash',
+          currency: 'EUR',
+        ),
+        'acc-2': Account(
+          id: 'acc-2',
+          name: 'USD savings',
+          type: 'cash',
+          currency: 'USD',
+        ),
+      },
+      transactions: [
+        Transaction(
+          id: 't1',
+          accountId: 'acc-1',
+          bookedOn: parseIsoDate('2026-02-10'),
+          amountMinor: -5000,
+          currency: 'EUR',
+        ),
+        Transaction(
+          id: 't2',
+          accountId: 'acc-2',
+          bookedOn: parseIsoDate('2026-03-10'),
+          amountMinor: 12000,
+          currency: 'USD',
+        ),
+      ],
+      fxRates: [
+        FxRate(
+          baseCurrency: 'EUR',
+          quoteCurrency: 'USD',
+          pricedOn: parseIsoDate('2026-03-01'),
+          rate: Decimal.parse('1.2'),
+          provider: 'demo',
+        ),
+      ],
+    );
+    final controller = TrackerController(
+      doc,
+      asOf: parseIsoDate('2026-03-31'),
+      period: parseIsoDate('2026-03-15'),
+    );
+    expect(controller.periodStart, parseIsoDate('2026-03-01'));
+    expect(controller.periodEnd, parseIsoDate('2026-03-31'));
+    // 120.00 USD at 1.2 is 100.00 EUR: the March row counts, February's does not.
+    expect(controller.cashFlow.net, 10000);
+
+    controller.selectMonth(parseIsoDate('2026-02-10'));
+    expect(controller.periodEnd, parseIsoDate('2026-02-28'));
+    expect(controller.cashFlow.net, -5000);
+  });
+
   testWidgets('renders balances, then switches to positions', (tester) async {
     final controller = _controller();
     await tester.pumpWidget(FinanceTrackerApp(controller: controller));
@@ -44,6 +105,17 @@ void main() {
     expect(find.text('3114.04 EUR'), findsOneWidget);
     expect(find.text('Checking'), findsOneWidget);
     expect(find.text('1478.30 EUR'), findsOneWidget);
+
+    // The reported month is named on screen and steps back one month.
+    final month = formatIsoDate(controller.periodStart).substring(0, 7);
+    expect(find.text(month), findsOneWidget);
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
+    expect(find.text(month), findsNothing);
+    expect(
+      find.text(formatIsoDate(controller.periodStart).substring(0, 7)),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Assets'));
     await tester.pumpAndSettle();

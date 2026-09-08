@@ -1,5 +1,6 @@
 import 'package:finance_tracker/domain/decimal.dart';
 import 'package:finance_tracker/domain/finance.dart';
+import 'package:finance_tracker/domain/fx.dart';
 import 'package:finance_tracker/domain/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -83,6 +84,14 @@ Price _price(
   provider: provider,
 );
 
+FxRate _rate(String rate, String pricedOn) => FxRate(
+  baseCurrency: 'EUR',
+  quoteCurrency: 'USD',
+  pricedOn: parseIsoDate(pricedOn),
+  rate: Decimal.parse(rate),
+  provider: 'ecb',
+);
+
 Transaction _tx(
   String id,
   int amountMinor, {
@@ -92,12 +101,13 @@ Transaction _tx(
   String? tradeId,
   String importId = '',
   String bookedOn = '2026-03-01',
+  String currency = 'EUR',
 }) => Transaction(
   id: id,
   accountId: accountId,
   bookedOn: parseIsoDate(bookedOn),
   amountMinor: amountMinor,
-  currency: 'EUR',
+  currency: currency,
   categoryId: categoryId,
   transferId: transferId,
   tradeId: tradeId,
@@ -208,6 +218,180 @@ void main() {
         currency: 'EUR',
       );
       expect(flow.expenseByCategory, {'cat-2': 700});
+    });
+
+    test('converts a foreign row at its booking date, not the latest rate', () {
+      final doc = _doc(
+        currencies: const {'EUR': 2, 'USD': 2},
+        transactions: [
+          _tx('t1', 100000, categoryId: 'cat-1'),
+          _tx(
+            't2',
+            -12000,
+            accountId: 'acc-2',
+            categoryId: 'cat-2',
+            currency: 'USD',
+            bookedOn: '2026-03-10',
+          ),
+        ],
+        fxRates: [_rate('1.2', '2026-03-01'), _rate('1.5', '2026-03-20')],
+      );
+      final flow = FinanceEngine.cashFlow(
+        doc,
+        currency: 'EUR',
+        from: parseIsoDate('2026-03-01'),
+        to: parseIsoDate('2026-03-31'),
+        fx: FxConverter(doc, provider: 'ecb'),
+      );
+      // 120.00 USD at the 1.2 rate of the booking date is 100.00 EUR; the later
+      // 1.5 rate would have reported 80.00.
+      expect(flow.expenseByCategory, {'cat-2': 10000});
+      expect(flow.net, 90000);
+    });
+
+    test('makes totals unavailable when a row has no rate on its date', () {
+      final doc = _doc(
+        currencies: const {'EUR': 2, 'USD': 2},
+        transactions: [
+          _tx('t1', 100000, categoryId: 'cat-1'),
+          _tx(
+            't2',
+            -12000,
+            accountId: 'acc-2',
+            categoryId: 'cat-2',
+            currency: 'USD',
+            bookedOn: '2026-03-10',
+          ),
+        ],
+        // Observed only after the row was booked, so the row cannot be valued.
+        fxRates: [_rate('1.2', '2026-03-20')],
+      );
+      final flow = FinanceEngine.cashFlow(
+        doc,
+        currency: 'EUR',
+        fx: FxConverter(doc, provider: 'ecb'),
+      );
+      expect(flow.unconvertedCurrencies, {'USD'});
+      expect(flow.isComplete, isFalse);
+      expect(flow.totalIncome, isNull);
+      expect(flow.totalExpense, isNull);
+      expect(flow.net, isNull);
+    });
+
+    test('reports a foreign row rather than dropping it without a converter', () {
+      final flow = FinanceEngine.cashFlow(
+        _doc(
+          currencies: const {'EUR': 2, 'USD': 2},
+          transactions: [
+            _tx('t1', -700, accountId: 'acc-2', categoryId: 'cat-2',
+                currency: 'USD'),
+          ],
+        ),
+        currency: 'EUR',
+      );
+      expect(flow.unconvertedCurrencies, {'USD'});
+      expect(flow.net, isNull);
+    });
+  });
+
+  group('as-of filtering', () {
+    test('excludes cash and trades booked after the valuation date', () {
+      final doc = _doc(
+        transactions: [
+          _tx('t1', 100000, bookedOn: '2026-03-01'),
+          _tx('t2', -2000, bookedOn: '2026-04-01'),
+        ],
+        trades: [
+          _trade('tr1', TradeSide.buy, '1', 10000, tradedOn: '2026-03-01'),
+          _trade('tr2', TradeSide.buy, '5', 10000, tradedOn: '2026-04-01'),
+        ],
+      );
+      final asOf = parseIsoDate('2026-03-31');
+      expect(FinanceEngine.accountBalances(doc, asOf: asOf)['acc-1'], 100000);
+      expect(FinanceEngine.accountBalances(doc)['acc-1'], 98000);
+      expect(
+        FinanceEngine.holdings(doc, asOf: asOf).single.units,
+        Decimal.parse('1'),
+      );
+      expect(FinanceEngine.holdings(doc).single.units, Decimal.parse('6'));
+    });
+
+    test('net worth is unavailable while a trade is unsettled', () {
+      // 100.00 cash, a 100.00 buy executed on the 10th, its cash leaving on the
+      // 12th. On the 11th the document holds the position and the cash that
+      // bought it, so no defined total exists.
+      final doc = _doc(
+        transactions: [
+          _tx('t1', 10000, accountId: 'acc-3', bookedOn: '2026-03-01'),
+          _tx('t2', -10000,
+              accountId: 'acc-3', tradeId: 'tr1', bookedOn: '2026-03-12'),
+        ],
+        trades: [
+          _trade('tr1', TradeSide.buy, '1', 10000, tradedOn: '2026-03-10'),
+        ],
+        prices: [_price(10000, pricedOn: '2026-03-01')],
+      );
+      Minor? at(String date) => FinanceEngine.netWorth(
+        doc,
+        priceProvider: 'stooq',
+        rateProvider: 'ecb',
+        asOf: parseIsoDate(date),
+      );
+      expect(at('2026-03-11'), isNull);
+      // Before the trade it is plain cash; after settlement, the position.
+      expect(at('2026-03-09'), 10000);
+      expect(at('2026-03-12'), 10000);
+    });
+
+    test('net worth is unavailable while a transfer is in transit', () {
+      // 100.00 leaves one account on the 10th and lands in the other on the
+      // 12th. On the 11th the money is recorded nowhere; it has not vanished.
+      final doc = _doc(
+        transactions: [
+          _tx('t1', 10000, bookedOn: '2026-03-01'),
+          _tx('t2', -10000,
+              categoryId: 'cat-3', transferId: 'trf-1', bookedOn: '2026-03-10'),
+          _tx('t3', 10000,
+              accountId: 'acc-2',
+              categoryId: 'cat-3',
+              transferId: 'trf-1',
+              bookedOn: '2026-03-12'),
+        ],
+      );
+      Minor? at(String date) => FinanceEngine.netWorth(
+        doc,
+        priceProvider: 'stooq',
+        rateProvider: 'ecb',
+        asOf: parseIsoDate(date),
+      );
+      expect(at('2026-03-11'), isNull);
+      expect(at('2026-03-09'), 10000);
+      expect(at('2026-03-12'), 10000);
+    });
+
+    test('net worth values the position the tracker held on that date', () {
+      final doc = _doc(
+        transactions: [
+          _tx('t1', 20000, accountId: 'acc-3'),
+          _tx('t2', -20000, accountId: 'acc-3', tradeId: 'tr1'),
+          // Both booked after the valuation date, so neither may count.
+          _tx('t3', 500000, accountId: 'acc-1', bookedOn: '2026-04-05'),
+        ],
+        trades: [
+          _trade('tr1', TradeSide.buy, '2', 10000),
+          _trade('tr2', TradeSide.buy, '9', 10000, tradedOn: '2026-04-05'),
+        ],
+        prices: [_price(11000)],
+      );
+      expect(
+        FinanceEngine.netWorth(
+          doc,
+          priceProvider: 'stooq',
+          rateProvider: 'ecb',
+          asOf: parseIsoDate('2026-03-31'),
+        ),
+        22000,
+      );
     });
   });
 

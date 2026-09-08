@@ -194,6 +194,15 @@ TrackerDocument sampleTracker() {
       ),
     ],
     fxRates: [
+      // Cash flow converts each row on its own booking date, so a tracker needs
+      // rates back through the reported period, not only a current one.
+      FxRate(
+        baseCurrency: 'EUR',
+        quoteCurrency: 'USD',
+        pricedOn: daysAgo(45),
+        rate: Decimal.parse('1.07'),
+        provider: sampleProvider,
+      ),
       FxRate(
         baseCurrency: 'EUR',
         quoteCurrency: 'USD',

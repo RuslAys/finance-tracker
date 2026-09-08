@@ -8,7 +8,7 @@ Client-first means Flutter owns finance calculations, validation, and practical 
 
 ## Current state
 
-Implemented: the canonical finance model, validation, exact arithmetic, balances, cash flow, FIFO holdings, currency conversion, and a read-only UI over synthetic data. Storage, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, and a read-only UI over synthetic data. Storage, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
 
 ## Personal tracking with optional family features
 
@@ -66,15 +66,14 @@ Continuous monitoring while the app is closed requires a separately designed exe
 
 Before goals or suggestions rely on reporting:
 
-- Add explicit periods and currency coverage. The current controller requests all-time cash flow in the base currency and excludes other currencies rather than converting them.
-- For monthly cash flow, convert each included transaction using its booking date and the selected FX provider, then sum exact minor units. Show the policy; a missing rate makes the combined total unavailable.
-- For historical net worth, filter transactions and trades through the valuation date as well as selecting prices and FX rates through that date. Currently `asOf` limits quotes and rates only.
-- Surface invalid records, missing sources, stale observations, and missing prices/rates. Never replace an unknown amount with zero or generate an affected recommendation from it. Define and display freshness requirements for each report when implementing it.
+- Cash flow reports one selected month in the tracker's base currency. Each transaction in another currency is converted with the selected FX provider's rate on that transaction's booking date, then summed in exact minor units. A row without a rate on its date makes the month's totals unavailable and its currency is named on screen; it is never dropped from a total presented as complete.
+- Net worth values one date: transactions and trades booked after `asOf` are excluded, and prices and FX rates resolve on or before it. Account balances and the transactions list use the same date, so a listed row and the balance beside it always agree. A movement recorded in more than one row — a trade and its settlement, or the two legs of a transfer — may carry different dates. A valuation between them would count a position and the cash that bought it at once, or lose money in transit between two accounts; it is unavailable on such a date rather than wrong by the amount moved.
+- Still open: a data-through date, stale-observation and missing-source reporting, and per-report freshness requirements. Nothing recorded today states how far a user's own entry has got, so no screen may claim complete coverage through the refresh time. Never replace an unknown amount with zero or generate an affected recommendation from it.
 - Add recorded upcoming commitments before showing available-to-spend forecasts. A current balance alone does not establish what an individual or household can afford.
 
 ## Delivery order
 
-1. Correct reporting periods, currency coverage, historical calculations, and data-quality handling, with runnable regression tests.
+1. Correct reporting periods, currency coverage, historical calculations, and data-quality handling, with runnable regression tests. Periods, booking-date conversion, and as-of filtering are done; data-through and staleness reporting remain.
 2. Implement one storage adapter and editing for personal use, with verified writes and recovery.
 3. Add personal savings goals, validated allocations, and explainable actions; then add bank imports and commitments to reduce manual upkeep.
 4. Add optional household members, account ownership, shared goals/actions, and Household/Mine/Joint views. Use one shared Google Sheet for the family pilot; verify concurrent-edit behavior before enabling shared editing.
