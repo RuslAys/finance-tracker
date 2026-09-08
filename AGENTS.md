@@ -2,7 +2,7 @@
 
 ## Current scope
 
-Implemented: the Flutter client's canonical domain layer in `app/lib/domain/`, a read-only Material 3 UI over it in `app/lib/features/`, and their tests. The UI opens a synthetic sample document because no storage adapter exists yet. Do not add storage, import, ADK, MCP, or API implementation unless the user explicitly requests it.
+Implemented: the Flutter client's canonical domain layer in `app/lib/domain/`, a read-only Material 3 UI over it in `app/lib/features/`, a read-only local `.xlsx` reader in `app/lib/storage/`, and their tests. The app opens a workbook given `--dart-define=tracker=<path>` and the synthetic sample otherwise. Do not add workbook writing, Google Sheets, import, ADK, MCP, or API implementation unless the user explicitly requests it.
 
 All changes are AI-generated or AI-assisted unless a human author states otherwise. Do not represent generated output as independently human-authored.
 

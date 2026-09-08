@@ -29,8 +29,9 @@ app/
 │   │   ├── schema.dart        # canonical schema and validation
 │   │   └── snapshot.dart      # LLM/MCP-safe finance snapshot
 │   ├── storage/
+│   │   ├── xlsx_store.dart    # implemented: read-only local XLSX
+│   │   ├── xlsx_parts.dart    # implemented: SpreadsheetML cell reader
 │   │   ├── tracker_store.dart # local XLSX and Google Sheets contract
-│   │   ├── workbook_store.dart
 │   │   ├── google_sheets_store.dart
 │   │   └── mapping.dart       # custom mappings and migrations
 │   └── features/
@@ -44,7 +45,7 @@ app/
 └── test/
 ```
 
-`TrackerStore` is the only storage interface because the product explicitly supports two storage backends. It converts a workbook or Google Sheet through `SchemaMapper` before exposing a canonical `TrackerDocument`.
+`TrackerStore` is the only storage interface because the product explicitly supports two storage backends. It converts a workbook or Google Sheet through `SchemaMapper` before exposing a canonical `TrackerDocument`. Only `xlsx_store.dart` exists so far: it reads the canonical tabs of a local workbook and throws with every problem found rather than opening a partly understood file. One reader needs no interface; add `TrackerStore` when a second backend or a writer arrives.
 
 ## State
 

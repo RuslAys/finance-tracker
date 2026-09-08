@@ -8,7 +8,7 @@ Client-first means Flutter owns finance calculations, validation, and practical 
 
 ## Current state
 
-Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, and a read-only UI over synthetic data. Storage, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, and a read-only local `.xlsx` reader. Workbook writing, Google Sheets, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
 
 ## Personal tracking with optional family features
 
@@ -74,7 +74,7 @@ Before goals or suggestions rely on reporting:
 ## Delivery order
 
 1. Correct reporting periods, currency coverage, historical calculations, and data-quality handling, with runnable regression tests. Periods, booking-date conversion, and as-of filtering are done; data-through and staleness reporting remain.
-2. Implement one storage adapter and editing for personal use, with verified writes and recovery.
+2. Implement one storage adapter and editing for personal use, with verified writes and recovery. Reading a local `.xlsx` tracker is done; writing, backup, and recovery are not, and no screen edits anything yet.
 3. Add personal savings goals, validated allocations, and explainable actions; then add bank imports and commitments to reduce manual upkeep.
 4. Add optional household members, account ownership, shared goals/actions, and Household/Mine/Joint views. Use one shared Google Sheet for the family pilot; verify concurrent-edit behavior before enabling shared editing.
 5. Add the local workbook adapter and one-way consolidation when private or separate sources are needed.

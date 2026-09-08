@@ -149,8 +149,9 @@ class DashboardScreen extends StatelessWidget {
               // far the user's own entry has got.
               'Valued on ${formatIsoDate(controller.asOf)}, computed at '
               '${controller.refreshedAt.toLocal().toString().substring(11, 16)}'
-              '.\nSample data. Opening a workbook or Google Sheet is not '
-              'implemented yet.',
+              '.\n${controller.source.isEmpty ? 'Sample data. Pass '
+                    '--dart-define=tracker=<path> to open a workbook.' : 'Read '
+                    'only from ${controller.source}'}',
               textAlign: TextAlign.center,
             ),
           ),

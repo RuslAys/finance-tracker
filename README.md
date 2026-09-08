@@ -27,7 +27,7 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 ## Status
 
-`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, the balance, cash-flow, and FIFO holdings calculations, and exact cross-currency conversion with instrument market value. `app/lib/features/` holds `TrackerController` and the dashboard, transactions, and assets screens; until a storage adapter exists the app opens a synthetic sample document. Tests live in `app/test/`; run them with `flutter test` from `app/`.
+`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, the balance, cash-flow, and FIFO holdings calculations, and exact cross-currency conversion with instrument market value. `app/lib/features/` holds `TrackerController` and the dashboard, transactions, and assets screens. `app/lib/storage/xlsx_store.dart` reads a canonical `.xlsx` tracker; run with `flutter run --dart-define=tracker=<path>` to open one, or without it for a synthetic sample document. Add `--dart-define=price_provider=<name>` and `--dart-define=rate_provider=<name>` when the workbook holds observations from more than one provider; reports never mix them. Nothing writes to a workbook yet. Tests live in `app/test/`; run them with `flutter test` from `app/`.
 
 ## License
 

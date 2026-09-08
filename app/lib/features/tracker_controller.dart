@@ -17,6 +17,7 @@ class TrackerController extends ChangeNotifier {
     TrackerDocument document, {
     this.priceProvider = 'demo',
     this.rateProvider = 'demo',
+    this.source = '',
     DateTime? asOf,
     DateTime? period,
   }) : _document = document,
@@ -30,6 +31,10 @@ class TrackerController extends ChangeNotifier {
   final DateTime asOf;
   final String priceProvider;
   final String rateProvider;
+
+  /// Workbook this document was read from; empty for the synthetic sample.
+  /// The adapter is read-only, so nothing is ever written back to it.
+  final String source;
 
   DateTime _periodStart;
 

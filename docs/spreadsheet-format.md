@@ -2,7 +2,7 @@
 
 Use the same workbook tabs and columns for a local `.xlsx` tracker and a Google Sheet. CSV is supported only as an import/export format because it cannot represent the related tables.
 
-This is the version 1 storage contract; adapters and imports are not implemented. The current domain implements its finance subset. Household and goal extensions below are planned and do not change the current `format_version` or imply reader/writer support.
+This is the version 1 storage contract. A read-only local `.xlsx` reader implements the canonical tabs below; workbook writing, Google Sheets, and imports are not implemented. The current domain implements its finance subset. Household and goal extensions below are planned and do not change the current `format_version` or imply reader/writer support.
 
 ## Rules
 
@@ -10,7 +10,7 @@ This is the version 1 storage contract; adapters and imports are not implemented
 - Dates use `YYYY-MM-DD`.
 - Monetary values use integer minor units. The `currencies.minor_unit` value defines the scale: `1234` means `12.34` for EUR (`2`), `1234` means `1234` for JPY (`0`), and `1234` means `1.234` for KWD (`3`).
 - Fractional asset quantities are decimal strings, never binary floating-point values.
-- The workbook contains no macros, formulas, or external links.
+- The workbook contains no macros, formulas, or external links. The `.xlsx` reader refuses a file carrying a macro part, an external-link relationship, or an external reference, and refuses any cell holding a formula.
 - Boolean fields are written as the lowercase text values `true` or `false`.
 - Decimal strings use ASCII digits, an optional leading `-` for a nonzero value, and an optional decimal point: no leading `+`, no leading zeroes except `0`, and no trailing fractional zeroes. `0` is the only zero form; `-0` and `-0.0` normalize to `0`. `0.85` and `-0.85` are valid; `.85` is invalid. Thus `1.5`, `1.50`, and `1.500` normalize to `1.5`.
 
@@ -21,7 +21,7 @@ All exact-value fields are written as text cells: UUIDs, ISO dates, RFC 3339 UTC
 Readers normalize legacy cell values before validation:
 
 - Native Booleans and case-insensitive `TRUE`/`FALSE` text normalize to lowercase `true`/`false`.
-- ISO date text is canonical. A numeric date serial is accepted only from a cell explicitly formatted as a date and is normalized using its source workbook date system and spreadsheet timezone; otherwise it is rejected.
+- ISO date text is canonical. A numeric date serial is accepted only from a cell explicitly formatted as a date and is normalized using its source workbook date system and spreadsheet timezone; otherwise it is rejected. The `.xlsx` reader resolves a serial against the epoch its workbook declares in `workbookPr/@date1904`, so a file written by an older Excel for Mac reads the same dates as any other. Serial 60 of the 1900 system is refused: it names 29 February 1900, a day that never existed.
 - Timestamps are canonical RFC 3339 UTC text. Numeric timestamp serials are rejected because their timezone and precision cannot be recovered exactly.
 - A numeric `*_minor` cell is accepted only when it is an exact safe integer. Numeric `trades.units` and `fx_rates.rate` cells are rejected because their original decimal precision cannot be recovered.
 
