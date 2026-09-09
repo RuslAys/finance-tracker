@@ -2,7 +2,7 @@
 
 Use the same workbook tabs and columns for a local `.xlsx` tracker and a Google Sheet. CSV is supported only as an import/export format because it cannot represent the related tables.
 
-This is the version 1 storage contract. A read-only local `.xlsx` reader implements the canonical finance subset below; workbook writing, Google Sheets, imports, and custom mappings are not implemented. Portfolio, household, goal, and mapping extensions below are planned and do not change the current `format_version` or imply reader/writer support.
+This is the version 1 storage contract. A read-only local `.xlsx` reader implements the canonical finance subset below, including the optional `portfolios` tab; workbook writing, Google Sheets, imports, and custom mappings are not implemented. The household, goal, and mapping extensions below are planned and do not change the current `format_version` or imply reader/writer support.
 
 ## Rules
 
@@ -49,7 +49,23 @@ Every currency used by `_meta.base_currency`, an account, transaction, trade, in
 
 ### `accounts`
 
-`id, name, type, currency, archived`
+`id, name, type, currency, archived, portfolio_id`
+
+`portfolio_id` is blank or references a `portfolios` row, and is described with that tab below.
+
+### `portfolios`
+
+`id, name`
+
+Follow the [portfolio product rules](product.md#investment-portfolios). A portfolio is a named group of investment accounts within one tracker. `name` is required: it is how a user selects the portfolio.
+
+An account references at most one existing portfolio; several accounts may reference the same portfolio. An investment account is one whose `accounts.type` is `brokerage`, whether or not it holds an open position: a brokerage account holding only cash still belongs to a portfolio.
+
+Both the tab and the column are optional on read. A workbook written before this release, with no `portfolios` tab and no `portfolio_id` column, opens unchanged and reports every investment account as Unassigned; no migration is required. Writing them is not implemented, so membership is currently read, never edited.
+
+A blank `portfolio_id` means Unassigned. A `portfolio_id` with no `portfolios` row, or one on an account that is not an investment account, is a validation error; a duplicate `portfolios.id` is refused on read. Portfolio membership does not replace account IDs, change FIFO grouping, or enter bank identity/fingerprint fields. Calculated portfolio totals are never stored: they are recomputed from the accounts.
+
+Splitting one account's lots or cash between strategy portfolios requires a separate allocation design and is not supported.
 
 ### `categories`
 
@@ -111,13 +127,15 @@ Exactly one transaction carries each trade's `id` in its `trade_id`. That row is
 
 The composite key is `(instrument_id, priced_on, currency, provider)`.
 
+A row the schema rejects, such as a negative `price_minor`, is never selected as an observation: valuing a real position from it would report a negative holding rather than the broken row it is. A report withholds its totals and names such a row when it holds an open position in that instrument, the row is quoted in a currency that position may be valued in, and it belongs to the report's price provider, dated on or before its valuation date. A fully sold position is worth zero and reads no price at all. Another provider's row, or one dated after it, is not an observation the report can read.
+
 ### `fx_rates`
 
 `base_currency, quote_currency, priced_on, rate, provider`
 
-`rate` is an exact decimal string representing quote-currency units per one base-currency unit. The composite key is `(base_currency, quote_currency, priced_on, provider)`.
+`rate` is an exact decimal string representing quote-currency units per one base-currency unit. The composite key is `(base_currency, quote_currency, priced_on, provider)`. A non-positive rate is rejected and never selected as an observation, in either direction: it has no reciprocal, so a leg using it would invert the amount it converts. A report withholds its converted totals and names such a row when it belongs to the report's rate provider, is dated on or before its valuation date, and both of its currencies are ones the report converts between or triangulates through. A report that converts nothing depends on no rate at all.
 
-Cross-currency reports select one `provider` and resolve an effective rate on the requested as-of date using this order: identity `1` when source equals target, direct `(source, target)`, reciprocal of `(target, source)`, then two legs through `_meta.base_currency`. Each direct or reciprocal leg uses the latest observation on or before the as-of date from that provider. No other triangulation, provider mixing, or rate selection is permitted. A missing leg makes the converted total unavailable; it must not be treated as zero.
+Cross-currency reports select one `provider` and resolve an effective rate on the requested as-of date using this order: identity `1` when source equals target, direct `(source, target)`, reciprocal of `(target, source)`, then two legs through `_meta.base_currency`. Each direct or reciprocal leg uses the latest observation on or before the as-of date from that provider. No other triangulation, provider mixing, or rate selection is permitted. A missing leg makes the converted total unavailable; it must not be treated as zero. A zero amount is the one exception: it converts to zero without any observation, because zero is exact at every rate and an empty foreign account must not withhold the totals of the accounts beside it.
 
 Convert each stored decimal rate to the exact rational `unscaled_integer ÷ 10^fraction_digits`. A reciprocal swaps numerator and denominator; two legs multiply numerators and denominators. Do not materialize an intermediate decimal rate. To convert `amount_minor` from source currency with exponent `source_minor_unit` to target currency with exponent `target_minor_unit`, calculate the resulting rational `amount_minor × effective_rate × 10^target_minor_unit ÷ 10^source_minor_unit`, then divide and round once to the nearest target minor unit, with an exact half rounded away from zero.
 
@@ -138,14 +156,6 @@ On every open and before every import, the app reconciles every transaction and 
 An explicit user-confirmed re-import may create a new import row with `override_of` set to the prior committed import ID and a non-empty `override_reason`. It still runs all row-level deduplication checks.
 
 For a new import, an existing `(account_id, source, source_id)` identity within the same entity is a duplicate only when `source_id` is non-empty. A matching `row_fingerprint` is always presented as a duplicate candidate for user resolution before commit, whether or not the incoming row has a source ID; the import must not silently add it. These rules apply to both `transactions` and `trades`.
-
-## Planned portfolio extension
-
-Follow the [portfolio product rules](product.md#investment-portfolios). A future format release will add portfolios with stable IDs and names and an optional portfolio reference on investment accounts. An account references at most one existing portfolio; several accounts may reference the same portfolio. The exact columns and migration ship with implementation, not this documentation change.
-
-Existing accounts without a portfolio remain valid and investment accounts appear as Unassigned. Define how investment accounts are identified from `accounts.type` in that release, including accounts with cash but no open positions. Portfolio membership does not replace account IDs, change FIFO grouping, or enter bank identity/fingerprint fields. Do not persist calculated portfolio totals as authoritative records.
-
-Validate unknown portfolio references and duplicate IDs. Provide a backward-compatible read or explicit migration path for existing trackers, and verified writes and recovery before offering membership edits. Splitting one account's lots or cash between strategy portfolios requires a separate allocation design.
 
 ## Planned household and goal extensions
 

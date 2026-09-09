@@ -2,7 +2,7 @@
 
 ## Product experience
 
-The implemented UI contains read-only Dashboard, Transactions, and Assets over a canonical local workbook or synthetic data. Portfolios, widget configuration, mapping setup, personal goals, and the optional family experience below are planned; follow the [product delivery order](product.md#delivery-order). Individual users can track finances, goals, and actions without household setup or a member picker.
+The implemented UI contains read-only Dashboard, Transactions, and Assets over a canonical local workbook or synthetic data, with portfolio selection on Assets. Portfolio editing, widget configuration, mapping setup, personal goals, and the optional family experience below are planned; follow the [product delivery order](product.md#delivery-order). Individual users can track finances, goals, and actions without household setup or a member picker.
 
 The home screen answers three questions:
 
@@ -22,9 +22,9 @@ Keep budgeting guidance useful without chat. Optional AI explanations use the sa
 
 ## Investment portfolios
 
-Extend Assets with an All portfolios view, individual portfolio selection, and an explicit Unassigned group. Provide controls to name portfolios and assign investment accounts when persistence is implemented. The initial account-grouping scope and combined-summary rules are defined in [product requirements](product.md#investment-portfolios).
+Assets has an All portfolios view, individual portfolio selection, and an explicit Unassigned group. Controls to name portfolios and assign investment accounts wait on workbook writing; until then membership is read from the tracker. The account-grouping scope and combined-summary rules are defined in [product requirements](product.md#investment-portfolios).
 
-Show investment value, remaining cost, realized and unrealized gains, and holdings; show cash separately and clearly label a cash-plus-investments total. Expose the included accounts, valuation date, reporting currency, and price/FX policy. Retain account detail when the same instrument appears in several accounts. A portfolio summary can also appear as a dashboard widget.
+Show investment value, remaining cost, realized and unrealized gains, and holdings; show cash separately and clearly label a cash-plus-investments total. Expose the included accounts, valuation date, reporting currency, and price/FX policy. Name every unavailable total's cause, such as an unpriced instrument, a missing rate, a half-recorded movement, or a record that fails validation. A closed position is worth zero and needs no current quote. Retain account detail when the same instrument appears in several accounts. A portfolio summary can also appear as a dashboard widget.
 
 ## Widget configuration
 

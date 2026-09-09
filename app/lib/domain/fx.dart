@@ -39,6 +39,9 @@ class FxConverter {
     FxRate? best;
     for (final rate in _byPair[_pairKey(base, quote)] ?? const <FxRate>[]) {
       if (rate.pricedOn.isAfter(asOf)) continue;
+      // A rate the schema rejects is not an observation. A zero or negative one
+      // has no reciprocal either, so a leg using it would invert a real amount.
+      if (rate.rate <= Decimal.zero) continue;
       if (best == null || rate.pricedOn.isAfter(best.pricedOn)) best = rate;
     }
     return best?.rate.fraction;
@@ -85,6 +88,11 @@ class FxConverter {
       throw ArgumentError('Currency ${fromUnit == null ? from : to} has no '
           'currencies row');
     }
+    // Zero is zero at every rate, so a zero amount is exactly known even where
+    // no observation exists. Reporting it as unavailable would make an empty
+    // foreign account hide the totals of every account beside it.
+    if (amountMinor == 0) return 0;
+
     final rate = effectiveRate(from, to, asOf);
     if (rate == null) return null;
 

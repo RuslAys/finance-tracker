@@ -37,7 +37,19 @@ TrackerDocument sampleTracker() {
         name: 'Broker',
         type: 'brokerage',
         currency: 'EUR',
+        portfolioId: 'pf-retirement',
       ),
+      // No portfolio and no rows yet: it shows what the Unassigned group and an
+      // investment account holding nothing look like.
+      'acc-broker-usd': Account(
+        id: 'acc-broker-usd',
+        name: 'US broker',
+        type: 'brokerage',
+        currency: 'USD',
+      ),
+    },
+    portfolios: const {
+      'pf-retirement': Portfolio(id: 'pf-retirement', name: 'Retirement'),
     },
     categories: const {
       'cat-salary': Category(

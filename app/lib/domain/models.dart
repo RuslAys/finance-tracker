@@ -34,6 +34,13 @@ enum TradeSide { buy, sell }
 
 enum ImportStatus { pending, committed, failed, cancelled }
 
+/// The `accounts.type` values that hold investments.
+///
+/// Portfolio grouping reads this rather than the trades an account happens to
+/// have: a brokerage account holding only cash is still an investment account,
+/// and must appear in a portfolio rather than vanish from the summary.
+const Set<String> investmentAccountTypes = {'brokerage'};
+
 class Account {
   const Account({
     required this.id,
@@ -41,6 +48,7 @@ class Account {
     required this.type,
     required this.currency,
     this.archived = false,
+    this.portfolioId,
   });
 
   final String id;
@@ -48,6 +56,23 @@ class Account {
   final String type;
   final String currency;
   final bool archived;
+
+  /// The one portfolio this account is reported under, or absent for the
+  /// explicit Unassigned group. Membership is a reporting grouping only: it is
+  /// not ownership, access control, or a movement of money.
+  final String? portfolioId;
+
+  bool get isInvestment => investmentAccountTypes.contains(type);
+
+  String? get portfolioKey => _blankToNull(portfolioId);
+}
+
+/// A named group of investment accounts within one tracker.
+class Portfolio {
+  const Portfolio({required this.id, required this.name});
+
+  final String id;
+  final String name;
 }
 
 class Category {
@@ -212,6 +237,7 @@ class TrackerDocument {
     required this.baseCurrency,
     required this.currencies,
     this.accounts = const {},
+    this.portfolios = const {},
     this.categories = const {},
     this.instruments = const {},
     this.transactions = const [],
@@ -227,6 +253,7 @@ class TrackerDocument {
   /// Currency code to `minor_unit` exponent, such as `EUR` to `2`.
   final Map<String, int> currencies;
   final Map<String, Account> accounts;
+  final Map<String, Portfolio> portfolios;
   final Map<String, Category> categories;
   final Map<String, Instrument> instruments;
   final List<Transaction> transactions;

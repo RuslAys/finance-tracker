@@ -48,6 +48,27 @@ List<ValidationError> validateTracker(TrackerDocument doc) {
       account.id,
       'Currency ${account.currency} has no currencies row',
     );
+    final portfolioId = account.portfolioKey;
+    if (portfolioId == null) continue;
+    check(
+      doc.portfolios.containsKey(portfolioId),
+      'accounts',
+      account.id,
+      'Unknown portfolio_id $portfolioId',
+    );
+    // A cash account inside a portfolio would be counted as investment cash
+    // here and as ordinary cash everywhere else.
+    check(
+      account.isInvestment,
+      'accounts',
+      account.id,
+      'Only an investment account (type '
+          '${investmentAccountTypes.join(', ')}) may reference a portfolio',
+    );
+  }
+  for (final portfolio in doc.portfolios.values) {
+    // The name is how a user selects the portfolio; a blank one is unpickable.
+    check(portfolio.name.isNotEmpty, 'portfolios', portfolio.id, 'Missing name');
   }
   for (final instrument in doc.instruments.values) {
     // Without its currencies row, a later price cannot be scaled to minor units.

@@ -62,6 +62,7 @@ class _Reader {
       baseCurrency: meta['base_currency'] ?? '',
       currencies: _currencies(),
       accounts: _accounts(),
+      portfolios: _portfolios(),
       categories: _categories(),
       instruments: _instruments(),
       transactions: _transactions(),
@@ -124,13 +125,11 @@ class _Reader {
 
   Map<String, Account> _accounts() {
     final accounts = <String, Account>{};
-    for (final row in _rows('accounts', const [
-      'id',
-      'name',
-      'type',
-      'currency',
-      'archived',
-    ])) {
+    for (final row in _rows(
+      'accounts',
+      const ['id', 'name', 'type', 'currency', 'archived'],
+      optional: const ['portfolio_id'],
+    )) {
       final id = row['id']!.text;
       _unique(accounts.containsKey(id), 'accounts', id);
       accounts[id] = Account(
@@ -139,9 +138,25 @@ class _Reader {
         type: _text('accounts', id, 'type', row),
         currency: _text('accounts', id, 'currency', row),
         archived: _bool('accounts', id, 'archived', row),
+        portfolioId: _optional(_text('accounts', id, 'portfolio_id', row)),
       );
     }
     return accounts;
+  }
+
+  /// Optional: a tracker that groups nothing has no `portfolios` tab, and its
+  /// investment accounts are all reported as unassigned.
+  Map<String, Portfolio> _portfolios() {
+    final portfolios = <String, Portfolio>{};
+    for (final row in _rows('portfolios', const ['id', 'name'])) {
+      final id = row['id']!.text;
+      _unique(portfolios.containsKey(id), 'portfolios', id);
+      portfolios[id] = Portfolio(
+        id: id,
+        name: _text('portfolios', id, 'name', row),
+      );
+    }
+    return portfolios;
   }
 
   Map<String, Category> _categories() {
@@ -333,7 +348,15 @@ class _Reader {
   /// Columns beyond [columns] are ignored, so a user's extra note column does
   /// not block opening. A row whose `id` column is blank is skipped: writers
   /// leave trailing empty rows behind.
-  List<Map<String, _Cell>> _rows(String tab, List<String> columns) {
+  ///
+  /// [optional] columns are read when the header has them and read as blank
+  /// when it does not, which is what keeps a workbook written before a column
+  /// existed readable by this release.
+  List<Map<String, _Cell>> _rows(
+    String tab,
+    List<String> columns, {
+    List<String> optional = const [],
+  }) {
     final sheet = _sheets[tab];
     if (sheet == null || sheet.isEmpty) return const [];
 
@@ -367,8 +390,10 @@ class _Reader {
     final rows = <Map<String, _Cell>>[];
     for (final row in sheet.skip(1)) {
       final cells = {
-        for (final column in columns)
-          column: row.elementAtOrNull(header[column]!) ?? _blank,
+        for (final column in [...columns, ...optional])
+          column: header[column] == null
+              ? _blank
+              : row.elementAtOrNull(header[column]!) ?? _blank,
       };
       if (cells.values.every((cell) => cell.text.isEmpty)) continue;
       // The first column identifies the row and is read as text everywhere

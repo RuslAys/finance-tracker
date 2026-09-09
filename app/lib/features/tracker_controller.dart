@@ -69,6 +69,25 @@ class TrackerController extends ChangeNotifier {
   late List<Holding> holdings;
   late Minor? netWorthMinor;
 
+  /// Named portfolios, then Unassigned. Empty when the tracker has no
+  /// investment accounts.
+  late List<PortfolioGroup> portfolioGroups;
+
+  /// Investments of [portfolioId], or of every portfolio when it is null.
+  late PortfolioReport portfolioReport;
+
+  String? _portfolioId;
+
+  /// The selected portfolio, or null for All portfolios.
+  String? get portfolioId => _portfolioId;
+
+  /// Reports one portfolio, or every one of them when [id] is null.
+  void selectPortfolio(String? id) {
+    _portfolioId = id;
+    _recompute();
+    notifyListeners();
+  }
+
   /// Set when the document cannot produce results, such as a sell without FIFO
   /// lots or an amount outside the exact minor-unit range. Screens show this
   /// instead of a wrong number.
@@ -91,10 +110,17 @@ class TrackerController extends ChangeNotifier {
         return byDate != 0 ? byDate : b.id.compareTo(a.id);
       });
     _fx = FxConverter(_document, provider: rateProvider);
+    portfolioGroups = FinanceEngine.portfolioGroups(_document);
+    // A portfolio that is gone from the reopened document cannot be reported;
+    // fall back to All rather than showing another portfolio's numbers.
+    if (!portfolioGroups.any((group) => group.id == _portfolioId)) {
+      _portfolioId = null;
+    }
     balances = const {};
     cashFlow = const CashFlow({}, {});
     holdings = const [];
     netWorthMinor = null;
+    portfolioReport = _emptyPortfolioReport();
     financeError = null;
 
     // A document that failed validation can also fail arithmetic: an amount
@@ -124,7 +150,47 @@ class TrackerController extends ChangeNotifier {
       netWorthMinor = null;
       financeError = error is FinanceError ? error.message : '$error';
     }
+
+    // Computed apart from the totals above: the selected portfolio reads only
+    // its own accounts, so an impossible sell or an unconvertible amount
+    // somewhere else in the tracker must not take this report down with it.
+    // The report itself withholds any total its own records cannot support.
+    try {
+      // The combined summary is computed from the union of the accounts, not by
+      // adding up the per-portfolio reports.
+      portfolioReport = FinanceEngine.portfolioReport(
+        _document,
+        accountIds: _scopeAccountIds(),
+        currency: _document.baseCurrency,
+        priceProvider: priceProvider,
+        rateProvider: rateProvider,
+        asOf: asOf,
+      );
+    } catch (error) {
+      portfolioReport = _emptyPortfolioReport(
+        error is FinanceError ? error.message : '$error',
+      );
+    }
   }
+
+  /// The accounts of the selected portfolio, or of every portfolio.
+  List<String> _scopeAccountIds() => [
+    for (final group in portfolioGroups)
+      if (_portfolioId == null || group.id == _portfolioId) ...group.accountIds,
+  ];
+
+  PortfolioReport _emptyPortfolioReport([
+    String reason = 'No calculated results',
+  ]) => PortfolioReport(
+    accountIds: const [],
+    currency: _document.baseCurrency,
+    holdings: const [],
+    cashMinor: null,
+    valueMinor: null,
+    costMinor: null,
+    realizedGainMinor: null,
+    unavailable: [reason],
+  );
 
   String get baseCurrency => _document.baseCurrency;
 

@@ -120,12 +120,134 @@ void main() {
     await tester.tap(find.text('Assets'));
     await tester.pumpAndSettle();
     expect(find.text('VWCE'), findsOneWidget);
-    expect(find.text('450.38 EUR'), findsOneWidget);
+    // Once on the position, once as the All portfolios summary of that one
+    // position.
+    expect(find.text('450.38 EUR'), findsNWidgets(2));
+    expect(find.text('All portfolios'), findsWidgets);
+
+    // Selecting the empty Unassigned group reports no positions rather than
+    // falling back to every account.
+    await tester.tap(find.byType(DropdownButtonFormField<({String? id})>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unassigned').last);
+    await tester.pumpAndSettle();
+    expect(find.text('VWCE'), findsNothing);
+    expect(find.text('No positions yet.'), findsOneWidget);
+    expect(find.text('Accounts: US broker'), findsOneWidget);
 
     await tester.tap(find.text('Transactions'));
     await tester.pumpAndSettle();
     expect(find.text('Landlord'), findsOneWidget);
     expect(find.text('-1150.00 EUR'), findsOneWidget);
+  });
+
+  test('a valid portfolio still reports while the tracker total cannot', () {
+    const broker = Account(
+      id: 'acc-a',
+      name: 'Broker A',
+      type: 'brokerage',
+      currency: 'EUR',
+      portfolioId: 'pf-1',
+    );
+    final controller = TrackerController(
+      TrackerDocument(
+        trackerId: 'oversold',
+        baseCurrency: 'EUR',
+        currencies: const {'EUR': 2},
+        accounts: const {
+          'acc-a': broker,
+          'acc-b': Account(
+            id: 'acc-b',
+            name: 'Broker B',
+            type: 'brokerage',
+            currency: 'EUR',
+            portfolioId: 'pf-2',
+          ),
+        },
+        portfolios: const {
+          'pf-1': Portfolio(id: 'pf-1', name: 'Sound'),
+          'pf-2': Portfolio(id: 'pf-2', name: 'Oversold'),
+        },
+        instruments: const {
+          'ins-1': Instrument(
+            id: 'ins-1',
+            symbol: 'VWCE',
+            name: 'World ETF',
+            type: 'etf',
+            currency: 'EUR',
+          ),
+        },
+        transactions: [
+          Transaction(
+            id: 't1',
+            accountId: 'acc-a',
+            bookedOn: parseIsoDate('2026-03-01'),
+            amountMinor: 30000,
+            currency: 'EUR',
+          ),
+          Transaction(
+            id: 't2',
+            accountId: 'acc-a',
+            bookedOn: parseIsoDate('2026-03-01'),
+            amountMinor: -20000,
+            currency: 'EUR',
+            tradeId: 'tr1',
+          ),
+          Transaction(
+            id: 't3',
+            accountId: 'acc-b',
+            bookedOn: parseIsoDate('2026-03-02'),
+            amountMinor: 55000,
+            currency: 'EUR',
+            tradeId: 'tr2',
+          ),
+        ],
+        trades: [
+          Trade(
+            id: 'tr1',
+            accountId: 'acc-a',
+            instrumentId: 'ins-1',
+            tradedOn: parseIsoDate('2026-03-01'),
+            side: TradeSide.buy,
+            units: Decimal.parse('2'),
+            priceMinor: 10000,
+            currency: 'EUR',
+          ),
+          // Sold out of an empty book: this account has no computable position.
+          Trade(
+            id: 'tr2',
+            accountId: 'acc-b',
+            instrumentId: 'ins-1',
+            tradedOn: parseIsoDate('2026-03-02'),
+            side: TradeSide.sell,
+            units: Decimal.parse('10'),
+            priceMinor: 5500,
+            currency: 'EUR',
+          ),
+        ],
+        prices: [
+          Price(
+            instrumentId: 'ins-1',
+            pricedOn: parseIsoDate('2026-03-01'),
+            priceMinor: 11000,
+            currency: 'EUR',
+            provider: 'demo',
+          ),
+        ],
+      ),
+      asOf: parseIsoDate('2026-03-31'),
+    );
+
+    // The tracker-wide numbers are gone, and All portfolios includes the broken
+    // account, so it withholds too.
+    expect(controller.financeError, contains('sells more units'));
+    expect(controller.netWorthMinor, isNull);
+    expect(controller.portfolioReport.totalMinor, isNull);
+
+    // The sound portfolio reads only its own account and still reports.
+    controller.selectPortfolio('pf-1');
+    expect(controller.portfolioReport.totalMinor, 32000);
+    expect(controller.portfolioReport.unavailable, isEmpty);
   });
 
   testWidgets('reports an invalid document instead of crashing', (

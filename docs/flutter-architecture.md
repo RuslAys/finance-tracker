@@ -2,7 +2,7 @@
 
 Use a small feature-first architecture. Do not introduce Clean Architecture layers, repositories, use-case classes, or state-management dependencies without a demonstrated need.
 
-The diagrams describe the target layout. Currently the domain model and calculations, `TrackerController`, read-only dashboard, transactions, and assets screens, and the canonical local `.xlsx` reader exist. Portfolios, source mapping, and widget configuration are planned. Implement the [product delivery order](product.md#delivery-order) incrementally; do not scaffold future components.
+The diagrams describe the target layout. Currently the domain model and calculations, `TrackerController`, read-only dashboard, transactions, and assets screens, the canonical local `.xlsx` reader, and read-only portfolio grouping and reports exist. Portfolio editing, source mapping, and widget configuration are planned. Implement the [product delivery order](product.md#delivery-order) incrementally; do not scaffold future components.
 
 ```text
 Flutter screens
@@ -75,9 +75,9 @@ Dashboard, Transactions, Assets, and future feature widgets
 
 Implement mapping at the storage boundary, shared by every feature. Reuse `xlsx_parts.dart` for cell decoding and the canonical field parsers and validation rules; keep source locations for errors. A canonical workbook needs no custom profile. Mapping configuration is declarative, using only supported transforms from the [spreadsheet contract](spreadsheet-format.md#custom-schemas-and-mappings).
 
-Represent initial portfolios as named groups of accounts, with at most one portfolio per account. Reuse the existing FIFO books and price/FX calculations. Compute the All portfolios report from unique included account IDs, including unassigned investment accounts; never aggregate independently configured widget totals. Validate the complete record relationships before applying report scope, and retain context for movements crossing that scope.
+Portfolios are named groups of accounts, with at most one portfolio per account. `FinanceEngine.portfolioGroups` builds them and `FinanceEngine.portfolioReport` values a set of account IDs, reusing the existing FIFO books and price/FX calculations. The All portfolios report is computed from the unique included account IDs, including unassigned investment accounts; independently configured widget totals are never aggregated. Validate the complete record relationships before applying report scope, and retain context for movements crossing that scope.
 
-Each widget type declares the canonical data and report options it needs. Validate those requirements before requesting its report. An unavailable entity does not become an empty list or zero amount; report eligibility follows available, valid data. Keep parsing errors separate from financial validation and report-level missing prices/rates so the UI can explain the affected feature. The current reader/controller do not yet implement this availability model.
+Each widget type declares the canonical data and report options it needs. Validate those requirements before requesting its report. An unavailable entity does not become an empty list or zero amount; report eligibility follows available, valid data. Keep parsing errors separate from financial validation and report-level missing prices/rates so the UI can explain the affected feature. `portfolioReport` does this for investments: it names each cause, and withholds its totals when a record of the included accounts fails validation. The rest of the reader/controller does not yet implement this availability model.
 
 Use small typed settings and existing Flutter state primitives. Source mappings select and normalize records; widget settings choose scope and presentation. Neither executes user code. Do not introduce per-widget spreadsheet parsers, a plugin runtime, or a new state-management dependency for configuration.
 

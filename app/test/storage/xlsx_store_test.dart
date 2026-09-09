@@ -1,4 +1,5 @@
 import 'package:finance_tracker/domain/decimal.dart';
+import 'package:finance_tracker/domain/finance.dart';
 import 'package:finance_tracker/domain/models.dart';
 import 'package:finance_tracker/domain/schema.dart';
 import 'package:finance_tracker/storage/xlsx_store.dart';
@@ -182,6 +183,31 @@ void main() {
     // The strongest check available: the parsed document satisfies the same
     // rules any other document must, including trade settlement matching.
     expect(validateTracker(doc), isEmpty);
+  });
+
+  test('reads portfolio membership, and a workbook written without it', () {
+    // The canonical workbook above predates portfolios: it must still open, and
+    // its investment account is simply unassigned.
+    final before = _read(_tabs());
+    expect(before.portfolios, isEmpty);
+    expect(before.accounts['acc-2']!.portfolioKey, isNull);
+
+    final tabs = _tabs();
+    tabs['portfolios'] = [
+      texts(['id', 'name']),
+      texts(['pf-1', 'Retirement']),
+    ];
+    tabs['accounts'] = [
+      texts(['id', 'name', 'type', 'currency', 'archived', 'portfolio_id']),
+      texts(['acc-1', 'Checking', 'cash', 'EUR', 'false', '']),
+      texts(['acc-2', 'Broker', 'brokerage', 'EUR', 'false', 'pf-1']),
+    ];
+
+    final doc = _read(tabs);
+    expect(doc.portfolios['pf-1']!.name, 'Retirement');
+    expect(doc.accounts['acc-2']!.portfolioKey, 'pf-1');
+    expect(validateTracker(doc), isEmpty);
+    expect(FinanceEngine.portfolioGroups(doc).single.accountIds, ['acc-2']);
   });
 
   test('reads the same workbook written with a namespace prefix', () {
