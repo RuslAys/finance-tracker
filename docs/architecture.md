@@ -4,7 +4,7 @@
 
 The client-first financial helper supports individual use with optional family features. Flutter owns finance rules, import validation, personal and household reports, goal progress, and deterministic budgeting suggestions. User data is not stored in a product-operated database. See [product rules and delivery order](product.md).
 
-Only the finance domain and read-only sample UI are implemented. Storage, household features, goals, consolidation, and the companion below describe planned work.
+The finance domain, read-only UI, and canonical local `.xlsx` reader are implemented. Named portfolios, configurable widgets, custom mappings, workbook writing, Google Sheets, household features, goals, consolidation, and the companion below describe planned work.
 
 ## Components
 
@@ -24,6 +24,7 @@ Optional local companion
 
 - Initially the app opens one tracker at a time. Personal tracking and goals need no household setup. Optional family features add members, joint accounts, and shared goals; a later household view may read approved contributions from separate trackers.
 - A tracker uses one source of truth: a local workbook or a Google Sheet.
+- Named investment portfolios initially group accounts within that tracker. Individual and combined reports reuse the finance engine and count each included account once; see [portfolio rules](product.md#investment-portfolios).
 - Import/export moves data between sources; v1 has no automatic two-way sync.
 - The optional companion has no write capability and never modifies transactions or spreadsheets.
 - Financial calculations, goal allocations, and suggestion rules are deterministic client code. An LLM can explain calculated results but cannot be the authority for balances, gains, goal progress, or affordability.
@@ -34,7 +35,9 @@ Optional local companion
 
 ## Schema customisation
 
-Users may customise their spreadsheet schema. An LLM may propose a schema migration, but it never applies one directly.
+Users may customise their spreadsheet schema through a declarative source mapping profile and configure every feature widget through separate presentation settings. Mapping setup works without an LLM. Source mappings normalize records once for the canonical finance engine; widgets select report scopes and display options over its results. Unknown or invalid mapped data must not appear as zero. See [mapping requirements](spreadsheet-format.md#custom-schemas-and-mappings) and [widget configuration](ui.md#widget-configuration).
+
+An LLM may propose a schema migration, but it never applies one directly.
 
 ```text
 LLM proposal → compatibility check → user reviews diff → backup → apply → new schema version

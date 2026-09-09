@@ -8,7 +8,30 @@ Client-first means Flutter owns finance calculations, validation, and practical 
 
 ## Current state
 
-Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, and a read-only local `.xlsx` reader. Workbook writing, Google Sheets, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, and a read-only local `.xlsx` reader. Named investment portfolios, combined portfolio reports, configurable widgets, custom source mappings, workbook writing, Google Sheets, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+
+## Investment portfolios
+
+Users can organize investments into named portfolios and inspect both an individual portfolio and a summary of all portfolios within the open tracker. This works for personal use without household setup, an LLM, or separate-source consolidation.
+
+- The initial design groups investment accounts under a portfolio with a stable ID and name. A portfolio can contain several accounts; an account belongs to at most one portfolio. Existing trackers require no portfolio setup, and unassigned investment accounts remain visible in an explicit Unassigned group.
+- Each portfolio reports holdings, market value, remaining FIFO cost, realized gains, and unrealized gains. Show account cash separately and label any total that includes both cash and positions. Preserve the account-level FIFO books when grouping holdings for display.
+- All portfolios includes named portfolios and unassigned investment accounts, counting each account and position once. It is an investment summary; the existing net-worth report still includes all tracker accounts. Never build totals by adding widget values, which can overlap.
+- Combined valuations use one reporting currency, valuation date, and price/FX provider policy. Preserve original amounts and currencies. Define and label the historical conversion policy before aggregating cost and realized gains across currencies; valuation-date FX alone does not establish historical investment performance.
+- Missing prices, rates, invalid records, incomplete settlements, or unknown source coverage make affected reports unavailable or explicitly incomplete. Show data-through dates and stale observations; unknown values are never zero. Keep transfer and settlement validation intact when selecting accounts.
+
+Splitting a single brokerage account into strategy portfolios is deferred pending explicit position/lot allocation, sale attribution, and unallocated-cash rules. Account membership is a reporting grouping, not ownership, access control, or a movement of money.
+
+## Configurable spreadsheets and widgets
+
+Users can keep their own spreadsheet layout and configure every feature widget through the UI. Use two separate configurations: a source mapping converts spreadsheet data into canonical records; widget settings select and present calculated reports. One mapping feeds all applicable widgets, so changing a header mapping cannot give different widgets different interpretations of the same amount.
+
+- Source profiles select sheets/tables, header rows or ranges, columns, supported date and decimal formats, and account/instrument aliases. Provide a preview of normalized records and actionable errors before activating a profile. The canonical layout works without custom setup.
+- Each feature exposes relevant widget settings: visibility, order, title, portfolio/account scope, visible fields, sorting, supported grouping, and reporting period. Allow multiple instances of a widget with different scopes and a way to restore defaults. Settings do not override financial validation or conceal warnings attached to visible results.
+- A missing or unmapped entity is distinct from a successfully mapped empty table. Enable only reports whose required data is available and valid; explain missing dependencies. A quantity/value snapshot cannot establish FIFO cost or realized gains, and support for such snapshots requires an explicit model extension rather than invented trades or settlements.
+- Persist source profiles separately from device-specific presentation preferences. Portable mapping storage and its versioning follow the [spreadsheet contract](spreadsheet-format.md#custom-schemas-and-mappings); a local profile file can support UI configuration before workbook writing exists. Saving a local profile does not modify the source workbook.
+
+Custom layouts remain subject to stable identifiers, exact money conversion, and the no-formulas/no-scripts rules. Arbitrary executable transformations and custom widget code are outside this feature. See the [UI requirements](ui.md#widget-configuration) and [Flutter configuration flow](flutter-architecture.md#portfolio-and-configuration-flow).
 
 ## Personal tracking with optional family features
 
@@ -75,9 +98,10 @@ Before goals or suggestions rely on reporting:
 
 1. Correct reporting periods, currency coverage, historical calculations, and data-quality handling, with runnable regression tests. Periods, booking-date conversion, and as-of filtering are done; data-through and staleness reporting remain.
 2. Implement one storage adapter and editing for personal use, with verified writes and recovery. Reading a local `.xlsx` tracker is done; writing, backup, and recovery are not, and no screen edits anything yet.
-3. Add personal savings goals, validated allocations, and explainable actions; then add bank imports and commitments to reduce manual upkeep.
-4. Add optional household members, account ownership, shared goals/actions, and Household/Mine/Joint views. Use one shared Google Sheet for the family pilot; verify concurrent-edit behavior before enabling shared editing.
-5. Add the local workbook adapter and one-way consolidation when private or separate sources are needed.
-6. Add optional AI explanations after the helper is useful without them.
+3. Add investment portfolios and their combined summary over the canonical format; then custom source mapping with preview and saved profiles; then configuration controls across Dashboard, Transactions, and Assets. Reporting prerequisites apply to each slice. Read-only portfolio reports and local configuration need not wait for workbook writing; saving portfolio membership in the tracker requires verified writes and recovery.
+4. Add personal savings goals, validated allocations, and explainable actions; then add bank imports and commitments to reduce manual upkeep. New feature widgets follow the same configuration requirements.
+5. Add optional household members, account ownership, shared goals/actions, and Household/Mine/Joint views. Use one shared Google Sheet for the family pilot; verify concurrent-edit behavior before enabling shared editing.
+6. Add one-way consolidation when private or separate sources are needed, extending the local workbook adapter as required.
+7. Add optional AI explanations after the helper is useful without them.
 
-Update the versioned schema and add runnable checks when implementing ownership, allocation, import, or consolidation behavior. Do not scaffold the later phases in advance.
+Update the versioned schema when implementing portfolio membership, ownership, allocation, import, or consolidation behavior. Add runnable checks for portfolio aggregation without double counting, missing-data handling, exact mapping conversions, and persisted widget scopes as those features ship. Do not scaffold the later phases in advance.

@@ -2,7 +2,7 @@
 
 Use the same workbook tabs and columns for a local `.xlsx` tracker and a Google Sheet. CSV is supported only as an import/export format because it cannot represent the related tables.
 
-This is the version 1 storage contract. A read-only local `.xlsx` reader implements the canonical tabs below; workbook writing, Google Sheets, and imports are not implemented. The current domain implements its finance subset. Household and goal extensions below are planned and do not change the current `format_version` or imply reader/writer support.
+This is the version 1 storage contract. A read-only local `.xlsx` reader implements the canonical finance subset below; workbook writing, Google Sheets, imports, and custom mappings are not implemented. Portfolio, household, goal, and mapping extensions below are planned and do not change the current `format_version` or imply reader/writer support.
 
 ## Rules
 
@@ -139,6 +139,14 @@ An explicit user-confirmed re-import may create a new import row with `override_
 
 For a new import, an existing `(account_id, source, source_id)` identity within the same entity is a duplicate only when `source_id` is non-empty. A matching `row_fingerprint` is always presented as a duplicate candidate for user resolution before commit, whether or not the incoming row has a source ID; the import must not silently add it. These rules apply to both `transactions` and `trades`.
 
+## Planned portfolio extension
+
+Follow the [portfolio product rules](product.md#investment-portfolios). A future format release will add portfolios with stable IDs and names and an optional portfolio reference on investment accounts. An account references at most one existing portfolio; several accounts may reference the same portfolio. The exact columns and migration ship with implementation, not this documentation change.
+
+Existing accounts without a portfolio remain valid and investment accounts appear as Unassigned. Define how investment accounts are identified from `accounts.type` in that release, including accounts with cash but no open positions. Portfolio membership does not replace account IDs, change FIFO grouping, or enter bank identity/fingerprint fields. Do not persist calculated portfolio totals as authoritative records.
+
+Validate unknown portfolio references and duplicate IDs. Provide a backward-compatible read or explicit migration path for existing trackers, and verified writes and recovery before offering membership edits. Splitting one account's lots or cash between strategy portfolios requires a separate allocation design.
+
 ## Planned household and goal extensions
 
 The [product rules](product.md) define the behavior; the following are candidate tables for a future versioned format change, not additions accepted by the current domain:
@@ -181,9 +189,9 @@ Keep raw bank files outside version control.
 
 ## Custom schemas and mappings
 
-The tabs and columns above are the canonical schema. A user may use a custom spreadsheet schema when a valid mapping converts it to the canonical model used by the app. `SnapshotBuilder` then produces the approved scoped data exposed to analytics, MCP tools, and LLMs.
+The tabs and columns above are the canonical schema. The following mapping contract is planned; the current reader uses canonical tab/header names and does not load `mappings`. A user may use a custom spreadsheet schema when a valid mapping converts it to the canonical model used by the app. All feature widgets consume reports over that same model. The planned `SnapshotBuilder` then produces the approved scoped data exposed to analytics, MCP tools, and LLMs.
 
-An import selects exactly one `mapping_id`. Store its mapping rows in a `mappings` tab. Boolean values use the lowercase text encoding defined above:
+A workbook open or import selects exactly one `mapping_id`; profiles may contain mappings for several entities. This allows custom tracker layouts independently of bank imports. Store portable mapping rows in a `mappings` tab. Before workbook writing is available, a local profile file may carry the same mapping semantics, bound to the selected tracker/source. Select one active profile explicitly; do not silently merge local and embedded definitions. Boolean values use the lowercase text encoding defined above:
 
 `mapping_id, entity, canonical_field, source_tab, source_column, transform, parameters, required, priority, status`
 
@@ -198,6 +206,24 @@ Example:
 `parameters` is a canonical JSON object whose allowed keys depend on `transform`; it is not executable code. Supported transforms are a closed set: `identity`, `trim`, `date_iso`, `money_to_minor`, `decimal_string`, `account_alias`, and `enum`. `enum` requires `{"map":{"input":"output"}}`. `account_alias` resolves a source account value through `account_aliases` using the import's `source`. `money_to_minor` uses the row currency derived from the resolved account and rejects a source amount with more fractional digits than that currency's `currencies.minor_unit`. Mappings must not execute formulas, scripts, or LLM-generated code.
 
 For one `(mapping_id, entity, canonical_field)`, active rows are evaluated by ascending numeric `priority`; the first row whose source column exists wins for the whole file. Equal active priorities are invalid. The app selects all source columns before parsing rows, then resolves each row's `account_id` through `account_alias`. The row currency is derived from that account before applying any `money_to_minor` transform; an optional mapped currency must equal the account currency or the row is a validation error. A transaction or trade without a valid account or currency cannot be parsed. The selected mapping is then validated for every row; parsing failure never falls through to a lower-priority mapping. An `enum` input missing from its `map` is a row validation error, and the import cannot commit until the user maps, corrects, or excludes that row. This makes the result independent of spreadsheet row order. `mapping_version` versions the complete selected mapping set.
+
+### Source layout and feature availability
+
+Profile configuration must support selecting source sheets/tables, header rows or ranges, source columns, supported date/decimal formats, and account/instrument aliases. The field mapping rows above do not yet encode table ranges or header positions; define their versioned profile metadata when implementing the mapper. Defaults describe the canonical layout. Row positions may locate source cells for diagnostics but never serve as entity IDs.
+
+Resolve source account and instrument identifiers to stable canonical IDs before financial validation. The existing `account_alias` transform covers accounts; instrument alias resolution must use `instrument_aliases` and an explicitly specified profile rule when implemented. Unknown or ambiguous aliases are setup errors. Neither a header rename nor a widget setting may invent new account, instrument, or transaction identity.
+
+Preview normalized rows and report failures with source location and canonical field before activating a profile. Preserve exact cell encoding and currency-dependent money conversion; reject ambiguous dates, excess monetary precision, formulas, and executable transformations. Revalidate when the source layout or profile changes. A profile change never silently rewrites source records.
+
+Track whether an entity is mapped and valid, mapped and empty, unavailable, or invalid. A missing mapping or source table is not evidence of zero records. Financial validation still checks relationships among entities; enable a widget only when its required records and report inputs are valid and available. Retained results after a failed refresh must be marked stale, not presented as newly read data.
+
+A sheet of current instrument quantities and values cannot provide trade history, FIFO cost, or realized gains. Supporting holdings snapshots requires an explicit canonical extension and coverage rules that prevent overlap with trade-derived holdings; do not synthesize trades or cash settlements to fit the existing schema.
+
+### Configuration persistence
+
+Keep device-specific widget visibility, order, titles, scopes, fields, and report options outside the canonical finance tables, keyed by tracker and stable widget instance IDs. Widget references use canonical account/portfolio IDs. Renaming a source column updates the source profile once, not each widget.
+
+`mapping_version` versions the selected mapping set; `layout_version` changes when the spreadsheet layout changes. Presentation-only edits change neither. Local profile saves leave the workbook untouched; saving mappings into a workbook requires the planned writer, backup, and recovery path. Finalize local profile serialization with implementation while preserving portability to the embedded mapping contract.
 
 ## User-approved LLM migrations
 

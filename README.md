@@ -2,7 +2,7 @@
 
 An open-source, client-first financial helper for mobile and web: understand your finances, plan goals, and choose practical next steps using spreadsheets you control. Optional family features support shared accounts and goals.
 
-Implemented: the Flutter finance domain, validation, deterministic calculations, and a read-only Material 3 UI over synthetic data. Storage, editing, imports, household membership, goals, monitoring, and AI integrations are planned.
+Implemented: the Flutter finance domain, validation, deterministic calculations, a read-only local `.xlsx` reader, and a read-only Material 3 UI. Portfolios, configurable widgets, custom spreadsheet mappings, writing/editing, imports, household features, goals, monitoring, and AI integrations are planned.
 
 ## AI-generated project
 
@@ -12,6 +12,7 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 - Start with one personal tracker in a local `.xlsx` workbook or one Google Sheet; add household members and shared goals when needed.
 - Keep calculations, bank-import validation, and goal-based budgeting guidance in Flutter.
+- Organize investments into portfolios with a combined summary; configure spreadsheet mappings and feature widgets independently.
 - Add one-way consolidation of approved separate sources later; no automatic two-way sync.
 - Keep AI explanations optional; goals and actions must work without an LLM.
 
