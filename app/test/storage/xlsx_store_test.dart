@@ -310,6 +310,105 @@ void main() {
     );
   });
 
+  /// Replaces the `_meta` worksheet, the first tab of [_tabs], with [xml].
+  List<int> withRawSheet(String xml) => buildXlsx(
+    _tabs(),
+    omitParts: const {'xl/worksheets/sheet1.xml'},
+    extraParts: {'xl/worksheets/sheet1.xml': xml},
+  );
+
+  test('refuses a cell reference past the last column of a sheet', () {
+    // The reader pads a row up to the reference, so an impossible one would
+    // otherwise ask for a row of half a million cells out of a tiny file.
+    expect(
+      () => readWorkbook(
+        withRawSheet(
+          rawSheet('<row r="1"><c r="AAAAA1" t="inlineStr"><is><t>key</t>'
+              '</is></c></row>'),
+        ),
+      ),
+      throwsA(
+        isA<WorkbookFormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('past the last column'),
+        ),
+      ),
+    );
+  });
+
+  test('refuses a worksheet whose XML stops mid-sheet', () {
+    // A truncated part is only discovered part-way through pulling its rows.
+    // Reading the rows that did arrive would open a tracker missing whatever
+    // the file stopped short of.
+    expect(
+      () => readWorkbook(
+        withRawSheet(
+          rawSheet(
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>key</t></is></c></row>'
+            '<row r="2"><c r="A2" t="inlineStr"><is><t>format_version',
+            closed: false,
+          ),
+        ),
+      ),
+      throwsA(
+        isA<WorkbookFormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('is not valid XML'),
+        ),
+      ),
+    );
+  });
+
+  test('refuses a worksheet part carrying a second root element', () {
+    // Balanced tags alone do not make a part a document. A row past the
+    // worksheet the file declares belongs to no sheet, and importing it would
+    // add records the workbook itself does not hold.
+    expect(
+      () => readWorkbook(
+        withRawSheet(
+          '${rawSheet('<row r="1"><c r="A1" t="inlineStr"><is><t>key</t>'
+              '</is></c></row>')}'
+          '<row r="2"><c r="A2" t="inlineStr"><is><t>tracker_id</t></is>'
+          '</c></row>',
+        ),
+      ),
+      throwsA(
+        isA<WorkbookFormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('is not valid XML'),
+        ),
+      ),
+    );
+  });
+
+  test('keeps an empty shared string, which every later index counts on', () {
+    // `<si/>` is one entry of the table. Dropping it moves every index past it
+    // onto the wrong string, so a name, a currency, or an id silently becomes
+    // another row's value.
+    final tabs = _tabs();
+    tabs['accounts'] = [
+      texts(['id', 'name', 'type', 'currency', 'archived']),
+      [text('acc-1'), sharedIndex('1'), ...texts(['cash', 'EUR', 'false'])],
+      texts(['acc-2', 'Broker', 'brokerage', 'EUR', 'false']),
+    ];
+    final doc = readWorkbook(
+      buildXlsx(
+        tabs,
+        omitParts: const {'xl/sharedStrings.xml'},
+        extraParts: {
+          'xl/sharedStrings.xml': rawSharedStrings(
+            '<si/><si><t>Checking</t></si>',
+          ),
+        },
+      ),
+    );
+
+    expect(doc.accounts['acc-1']!.name, 'Checking');
+  });
+
   test('refuses a Boolean that is neither 0 nor 1', () {
     final tabs = _tabs();
     tabs['accounts']![1][4] = rawBoolean('2');

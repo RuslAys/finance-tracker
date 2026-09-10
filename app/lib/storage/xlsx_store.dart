@@ -6,7 +6,7 @@
 /// maps to the canonical model or it does not open. Nothing here writes.
 library;
 
-import 'dart:io';
+import 'package:archive/archive.dart';
 
 import '../domain/decimal.dart';
 import '../domain/models.dart';
@@ -32,19 +32,30 @@ class WorkbookError implements Exception {
 ///
 /// The result is parsed, not validated: the caller runs [validateTracker] on
 /// it, exactly as it does for any other document.
-TrackerDocument readWorkbook(List<int> bytes) => _Reader(bytes).read();
+TrackerDocument readWorkbook(List<int> bytes) =>
+    _Reader(WorkbookParts.decode(bytes)).read();
 
 /// Reads the workbook at [path]. The file is opened read-only; v1 has no
 /// writer, so nothing here can damage a tracker.
-Future<TrackerDocument> openWorkbookFile(String path) async =>
-    readWorkbook(await File(path).readAsBytes());
+///
+/// The compressed file is read from disk as the reader needs it rather than
+/// held whole, so opening a large workbook costs its parts, not its parts plus
+/// its bytes.
+Future<TrackerDocument> openWorkbookFile(String path) async {
+  final input = InputFileStream(path);
+  try {
+    return _Reader(WorkbookParts.decodeStream(input)).read();
+  } finally {
+    await input.close();
+  }
+}
 
 typedef _Cell = Cell;
 
 const _Cell _blank = blankCell;
 
 class _Reader {
-  _Reader(List<int> bytes) : _sheets = WorkbookParts.decode(bytes).sheets;
+  _Reader(WorkbookParts parts) : _sheets = parts.sheets;
 
   /// Tab name to rows of cells, each already resolved against the workbook's
   /// shared strings, number formats, and date system.

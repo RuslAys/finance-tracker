@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
+import 'package:xml/xml_events.dart';
 
 /// What the workbook stored a cell as, which decides what it may be read as.
 ///
@@ -49,19 +50,38 @@ class WorkbookParts {
 
   /// Parses the parts this reader needs: the workbook, its relationships,
   /// shared strings, number formats, and every sheet.
-  factory WorkbookParts.decode(List<int> bytes) {
+  factory WorkbookParts.decode(List<int> bytes) =>
+      WorkbookParts.decodeStream(InputMemoryStream(bytes));
+
+  /// Reads the container from [input], which the caller closes.
+  ///
+  /// A caller holding a file passes an `InputFileStream` so that the compressed
+  /// workbook is read from disk as it is needed rather than held whole.
+  factory WorkbookParts.decodeStream(InputStream input) {
     final Archive archive;
     try {
-      archive = ZipDecoder().decodeBytes(bytes);
+      archive = ZipDecoder().decodeStream(input);
     } catch (error) {
       throw WorkbookFormatException('Not a readable .xlsx container: $error');
     }
 
-    XmlDocument? part(String name) {
-      final bytes = archive.findFile(name)?.readBytes();
+    /// The decompressed text of a part, dropped from the archive's cache once
+    /// read: the parts are large enough that keeping every one of them for the
+    /// length of the load is most of the peak memory.
+    String? text(String name) {
+      final file = archive.findFile(name);
+      final bytes = file?.readBytes();
       if (bytes == null) return null;
+      final decoded = utf8.decode(bytes);
+      file!.clear();
+      return decoded;
+    }
+
+    XmlDocument? part(String name) {
+      final content = text(name);
+      if (content == null) return null;
       try {
-        return XmlDocument.parse(utf8.decode(bytes));
+        return XmlDocument.parse(content);
       } on XmlException catch (error) {
         throw WorkbookFormatException('$name is not valid XML: $error');
       }
@@ -101,7 +121,11 @@ class WorkbookParts {
     }
 
     final strings = [
-      for (final item in _allIn(part('xl/sharedStrings.xml'), 'si'))
+      for (final item in _subtrees(
+        'xl/sharedStrings.xml',
+        text('xl/sharedStrings.xml'),
+        'si',
+      ))
         _all(item, 't').map((t) => t.innerText).join(),
     ];
     final dateStyles = _dateStyles(part('xl/styles.xml'));
@@ -125,11 +149,11 @@ class WorkbookParts {
       final path = target.startsWith('/')
           ? target.substring(1)
           : 'xl/${target.replaceFirst('./', '')}';
-      final document = part(path);
-      if (document == null) {
+      final content = text(path);
+      if (content == null) {
         throw WorkbookFormatException('Sheet "$name" is missing its $path part');
       }
-      sheets[name] = _rows(document, strings, dateStyles, date1904);
+      sheets[name] = _rows(path, content, strings, dateStyles, date1904);
     }
     return WorkbookParts(sheets);
   }
@@ -191,14 +215,65 @@ class WorkbookParts {
         !RegExp(r'[hs]|am/pm|a/p').hasMatch(format);
   }
 
+  /// The elements named [name] in [xml], one at a time.
+  ///
+  /// A worksheet is the one part that grows with the tracker, so it is pulled
+  /// event by event: only the current subtree is built as a tree, rather than
+  /// the whole part. [part] names the file in the error a malformed one raises.
+  static Iterable<XmlElement> _subtrees(
+    String part,
+    String? xml,
+    String name,
+  ) sync* {
+    if (xml == null) return;
+    final events = <XmlEvent>[];
+    var depth = 0;
+    // A part is a document, not a fragment: a second root element past the one
+    // the file declares is a damaged part, and the rows it carries belong to no
+    // sheet, so reading them would add records the workbook does not hold.
+    final iterator = parseEvents(
+      xml,
+      validateNesting: true,
+      validateDocument: true,
+    ).iterator;
+    while (true) {
+      // The parser reports a malformed part while it is being pulled, so every
+      // step is guarded, not just the first.
+      try {
+        if (!iterator.moveNext()) return;
+      } on XmlException catch (error) {
+        throw WorkbookFormatException('$part is not valid XML: $error');
+      }
+      final event = iterator.current;
+      if (depth == 0 &&
+          (event is! XmlStartElementEvent || event.localName != name)) {
+        continue;
+      }
+      // `<si/>` is an empty element, not an absent one: skipping it would shift
+      // every shared-string index past it onto another string.
+      events.add(event);
+      if (event is XmlStartElementEvent && !event.isSelfClosing) {
+        depth++;
+      } else if (event is XmlEndElementEvent) {
+        depth--;
+      }
+      if (depth == 0) {
+        final nodes = const XmlNodeDecoder().convert(events);
+        events.clear();
+        yield nodes.single as XmlElement;
+      }
+    }
+  }
+
   static List<List<Cell>> _rows(
-    XmlDocument sheet,
+    String part,
+    String xml,
     List<String> strings,
     Set<int> dateStyles,
     bool date1904,
   ) {
     final rows = <List<Cell>>[];
-    for (final row in _all(sheet, 'row')) {
+    for (final row in _subtrees(part, xml, 'row')) {
       final cells = <Cell>[];
       for (final cell in _children(row, 'c')) {
         final column = _columnOf(cell.getAttribute('r'));
@@ -213,6 +288,13 @@ class WorkbookParts {
     return rows;
   }
 
+  /// The last column a spreadsheet has, `XFD`.
+  ///
+  /// A reference past it names no cell, and the blank padding it would ask for
+  /// is bounded by nothing but the text of the reference, so a small file could
+  /// otherwise ask this reader for an unbounded row.
+  static const int _lastColumn = 16383;
+
   /// Zero-based column of a cell reference such as `AB7`.
   static int? _columnOf(String? reference) {
     if (reference == null) return null;
@@ -220,6 +302,10 @@ class WorkbookParts {
     for (final unit in reference.codeUnits) {
       if (unit < 0x41 || unit > 0x5a) break;
       column = column * 26 + (unit - 0x40);
+      if (column - 1 > _lastColumn) {
+        throw WorkbookFormatException('Cell reference "$reference" is past the '
+            'last column of a sheet');
+      }
     }
     return column == 0 ? null : column - 1;
   }

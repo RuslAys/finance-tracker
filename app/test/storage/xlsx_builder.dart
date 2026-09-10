@@ -45,6 +45,21 @@ const _mainNamespace =
 
 String _escape(String value) => const HtmlEscape().convert(value);
 
+/// A worksheet part written by hand, for what the row builder cannot express:
+/// a reference to a cell no sheet has, or a part that stops mid-sheet.
+///
+/// With [closed] false the tags are left open, which is what a truncated file
+/// looks like to a reader that pulls a worksheet event by event.
+String rawSheet(String rows, {bool closed = true}) =>
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<worksheet xmlns="$_mainNamespace"><sheetData>$rows'
+    '${closed ? '</sheetData></worksheet>' : ''}';
+
+/// A shared-string table written by hand, [entries] being raw `<si>` XML.
+String rawSharedStrings(String entries) =>
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<sst xmlns="$_mainNamespace">$entries</sst>';
+
 /// Column reference such as `A`, `Z`, `AA`.
 String columnName(int index) {
   var name = '';
@@ -206,6 +221,10 @@ List<int> buildXlsx(
   for (var i = 0; i < sheetParts.length; i++) {
     add('xl/worksheets/sheet${i + 1}.xml', sheetParts[i]);
   }
-  extraParts.forEach(add);
+  // Added past `add`, so an omitted part can be replaced by a hand-written one.
+  extraParts.forEach(
+    (name, content) =>
+        archive.addFile(ArchiveFile.bytes(name, utf8.encode(content))),
+  );
   return ZipEncoder().encode(archive);
 }
