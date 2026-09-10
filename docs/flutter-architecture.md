@@ -47,6 +47,44 @@ app/
 
 `TrackerStore` is the only storage interface because the product explicitly supports two storage backends. It converts a workbook or Google Sheet through `SchemaMapper` before exposing a canonical `TrackerDocument`. Only `xlsx_store.dart` exists so far: it reads the canonical tabs of a local workbook and throws with every problem found rather than opening a partly understood file. One reader needs no interface; add `TrackerStore` when a second backend or a writer arrives.
 
+## Large workbooks
+
+The following is the recommended performance work, not implemented streaming or database support. It belongs to the existing storage and reporting work; it does not change the product delivery order or add workbook writing.
+
+The current opener reads the complete compressed file, parses XML parts into document trees, retains cell grids for every worksheet, and builds row maps before creating the canonical document. The archive caches decompressed parts as they are read. These overlapping representations make peak memory much larger than the compressed file. Loading and initial calculations finish before `runApp`, and the controller retains the whole document afterward. The transactions list builds widgets lazily, but its backing data remains in memory.
+
+Prioritize these changes:
+
+1. Remove eager collections of row maps and release intermediate cells and decompressed parts as soon as their values are consumed. Avoid retaining unused worksheet data while preserving container and canonical-field validation.
+2. Read large worksheets with the existing `xml` dependency's [event-based API](https://pub.dev/packages/xml), processing one row at a time. Small metadata parts may retain DOM parsing. Preserve namespaces, shared strings, cell types, formula rejection, exact number text, date styles, and both date systems. Feeding a complete XML string into an event parser only removes the DOM: bounded input memory also requires incremental decompression and file access. Shared strings require indexed lookup and may themselves be large; consider disk-backed lookup only if measurements justify it.
+3. Enforce resource limits on compressed input, actual decompressed bytes, archive entries, cell coordinates, text lengths, and parsing work. Do not trust ZIP size declarations alone or allocate arbitrary blank-cell padding from a cell reference. Exceeding a limit must reject the load explicitly, never truncate financial records into an apparently valid tracker. If diagnostics are capped, state that further errors were omitted.
+4. Display loading progress and cancellation before parsing. On mobile and desktop, move parsing and expensive calculations to a background isolate, avoiding unnecessary copies of workbook bytes and results. An isolate improves responsiveness but does not remove the dataset's memory cost.
+5. Reuse document validation, transaction ordering, and calculated holdings when their inputs have not changed. Month or portfolio selection should recompute only affected results. Index price/FX history when repeated scans become expensive, retaining the selected provider and as-of date policies.
+
+Platform adapters remain necessary:
+
+| Platform | Loading and execution |
+| --- | --- |
+| Web | Browser workbook opening is not implemented by the current `dart:io.File` path. Add browser file selection and a browser-compatible input adapter. Use a Web Worker for CPU work; Flutter `compute()` runs on the main thread on web. |
+| Mobile | Add document-provider access and handle platform sandbox permissions; copy to app-local storage only when needed. Test memory pressure, cancellation, and lifecycle interruptions on representative phones. |
+| Desktop | Use file-backed input to avoid retaining the full compressed file where practical. Background work and resource limits still matter even when more RAM is available. |
+
+See [Flutter's isolate limitations](https://docs.flutter.dev/perf/isolates). Benchmark synthetic workbooks with varied row counts, text lengths, shared versus inline strings, sparse columns, price/FX histories, and invalid input. Measure peak process memory, retained heap after loading, time to usable reports, and interaction latency separately. Native Dart parser measurements do not establish mobile or browser limits. Keep runnable regression checks for exact parsing and financial relationships when changing the loader.
+
+## Conditional SQLite cache
+
+This section concerns workbook caching. [Saved chat](chat-and-skills.md#conversation-storage) separately justifies disk-backed storage when that feature ships; its history is not rebuildable from a tracker.
+
+Do not add an in-memory database to reduce RAM: SQLite [`:memory:`](https://www.sqlite.org/inmemorydb.html) retains its database in memory, and indexes plus Dart query results can add further copies. First measure the streaming reader and reporting improvements above.
+
+Introduce disk-backed SQLite only if retained data size, repeated queries, or reopening time still exceeds the target devices' budgets. Its benefit requires paged UI queries and bounded or ordered report inputs; rebuilding the complete `TrackerDocument` from SQLite would retain the main memory cost. Such a change must preserve full transfer/settlement validation and FIFO history before report scoping. Finance rules stay in Flutter, with exact integer minor units and decimal quantities/rates; do not move them into floating-point SQL expressions.
+
+If a database becomes necessary, prefer a shared SQLite schema and query implementation across native and web rather than unrelated database models. Evaluate a maintained Flutter integration such as [Drift](https://drift.simonbinder.eu/platforms/web/) then; no database dependency is selected now. Native uses filesystem storage, while web needs SQLite WASM, workers, and browser storage such as OPFS. Browser quotas, cleared site data, private-mode fallbacks, and multi-tab locking remain platform concerns. Do not silently fall back to an in-memory database for a workbook that exceeds the memory budget. Some configurations require COOP/COEP headers that affect Google authentication popups; test the database and OAuth flow together.
+
+SQLite used for workbook caching is a rebuildable, app-local cache, never a third tracker source or an automatic synchronization mechanism. Identify cached data by source identity and content/version plus schema and mapping versions, not just a path or tracker ID. Activate a replacement only after loading and validation succeed. A failed refresh leaves any retained results explicitly stale or unavailable, never an empty or current-looking tracker. Browser cache loss requires reopening the source. The optional companion neither builds nor owns this cache.
+
+A persistent cache creates another copy of financial data. Keep it in app-private storage, provide deletion, define retention and backup behavior, and do not treat ordinary SQLite as encrypted storage. Credentials belong in the separate [credential stores](privacy-and-llm.md#credentials), never in cached tracker tables.
+
 ## State
 
 Start with Flutter's built-in `ChangeNotifier` and `ValueNotifier`.
@@ -55,7 +93,7 @@ Start with Flutter's built-in `ChangeNotifier` and `ValueNotifier`.
 - Extend it with the reporting period, freshness/completeness, goals, and accepted actions as those features ship. Add a selected member only for optional family views; personal use must not require member records. Screens reuse computed results; no separate household state framework is needed.
 - Feature screens render controller state and call explicit actions.
 - Add portfolio selection and per-widget report settings as configuration ships. Keep source mapping profiles separate from presentation preferences; persist the latter per device and tracker, with stable widget instance IDs. A widget's scope is an input to a deterministic report, not a filtered copy of the tracker that loses transfer or settlement relationships.
-- `ChatController` owns a conversation's streamed messages and selected data scope.
+- `ChatController` owns the active conversation's bounded message window, streaming answer, and selected data scope. Persist saved history separately and budget model context according to the [chat and skills design](chat-and-skills.md).
 
 Add a state-management package only when controller sharing becomes a measured problem.
 

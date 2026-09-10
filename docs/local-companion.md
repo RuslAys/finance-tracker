@@ -16,6 +16,7 @@ It is not implemented and follows the core reporting, storage, and goals work in
 ## Non-responsibilities
 
 - Persisting the user's tracker data.
+- Owning saved chat history. Flutter stores permitted conversations locally; the companion handles only bounded request/response state.
 - Direct spreadsheet modification or any write-capable MCP tool.
 - Automatic transaction imports or financial actions.
 - Refreshing or consolidating source spreadsheets, continuously monitoring finances while the app is closed, or computing goal progress and authoritative suggestions.
@@ -34,4 +35,12 @@ The Flutter app publishes an explicitly approved snapshot to memory. It includes
 
 The companion uses LiteLLM as its one provider interface for local and cloud models. It defaults to a configured local model and never changes to a cloud provider without the user's explicit selection. Cloud API keys remain in the companion's local secret store.
 
+Follow the [chat resource limits](chat-and-skills.md#responsive-streaming) for request context, response buffers, concurrency, cancellation, and local-model memory. Release transient request state when a request completes or is cancelled; the approved snapshot retains only its separately defined lifetime. Do not accumulate a second conversation history in the gateway.
+
 ADK 2.x runs a single deterministic workflow in v1: validate the approved snapshot, request an explanation through LiteLLM, and stream the result. Multi-agent delegation, autonomous loops, and write tools are out of scope until they solve a specific user task.
+
+## Skills and external agents
+
+Reuse reviewed, versioned instructions through the [portable skills design](chat-and-skills.md#portable-skills-controlled-execution). The initial app workflow uses instructions and an already approved snapshot; it needs no arbitrary scripts or additional autonomous tool loop. External agents discover skills through their own host configuration and separately authenticate to the companion's read-only MCP tools.
+
+Enforce scope, snapshot expiry, and bounded tool results in the companion, regardless of skill instructions or host tool metadata. No skill grants Google credentials, raw spreadsheet access, or generic database queries. External-agent history and permissions remain outside the companion's control; follow the [disclosure rules](privacy-and-llm.md#saved-chat-and-external-agents).

@@ -24,6 +24,7 @@ Optional local companion
 
 - Initially the app opens one tracker at a time. Personal tracking and goals need no household setup. Optional family features add members, joint accounts, and shared goals; a later household view may read approved contributions from separate trackers.
 - A tracker uses one source of truth: a local workbook or a Google Sheet.
+- Prioritize streaming XLSX loading and measured reporting improvements. A disk-backed SQLite cache is conditional on demonstrated need, remains rebuildable from the selected source, and belongs to Flutter, not the companion. See [large-workbook handling](flutter-architecture.md#large-workbooks) and [cache constraints](flutter-architecture.md#conditional-sqlite-cache).
 - Named investment portfolios group accounts within that tracker. Individual and combined reports reuse the finance engine and count each included account once; see [portfolio rules](product.md#investment-portfolios).
 - Import/export moves data between sources; v1 has no automatic two-way sync.
 - The optional companion has no write capability and never modifies transactions or spreadsheets.
@@ -46,6 +47,10 @@ LLM proposal → compatibility check → user reviews diff → backup → apply 
 The app validates a proposed migration, previews affected rows and parsing failures, creates a backup, and requires confirmation before it changes the workbook or Google Sheet. MCP tools and LLMs receive only an explicitly approved, scoped snapshot; they never receive the canonical tracker document or raw spreadsheet columns.
 
 ## LLM providers
+
+Long conversations use local saved history, bounded UI state, and separately budgeted model context. Reusable skills share reviewed instructions while each host controls execution. See [chat, skills, and delivery actions](chat-and-skills.md); these are planned parts of the optional AI phase.
+
+Google OAuth tokens, user-owned provider keys, and app-owned provider keys have distinct trust boundaries. Follow the platform-specific [credential requirements](privacy-and-llm.md#credentials); credentials never belong in the spreadsheet or a tracker cache.
 
 Mobile cloud chat uses bring-your-own-key (BYOK): the user explicitly configures a cloud provider and the native Flutter client calls it over TLS. The key is stored only in the platform secure store and is never packaged into the app. The cloud provider receives only the approved finance snapshot and chat request.
 
