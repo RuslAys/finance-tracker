@@ -234,17 +234,25 @@ class FinanceEngine {
   /// which is the rate that applied when the money moved. Without [fx], or
   /// without a rate on that date, the row is not silently dropped: its currency
   /// is reported in `unconvertedCurrencies` and the totals become unavailable.
+  ///
+  /// With [accountIds], only rows booked in those accounts are counted, so a
+  /// report scoped to some of the tracker's accounts states the flow of those
+  /// accounts rather than of every account the tracker holds.
   static CashFlow cashFlow(
     TrackerDocument doc, {
     required String currency,
     DateTime? from,
     DateTime? to,
     FxConverter? fx,
+    Set<String>? accountIds,
   }) {
     final income = <String, Minor>{};
     final expense = <String, Minor>{};
     final unconverted = <String>{};
     for (final transaction in visibleTransactions(doc, asOf: to)) {
+      if (accountIds != null && !accountIds.contains(transaction.accountId)) {
+        continue;
+      }
       if (transaction.transferKey != null) continue;
       if (transaction.tradeKey != null) continue;
       if (from != null && transaction.bookedOn.isBefore(from)) continue;
@@ -619,7 +627,7 @@ class FinanceEngine {
           });
     }
 
-    final invalid = _invalidRecords(
+    final invalid = scopedErrors(
       doc,
       ids,
       quoteCurrencies: quotes,
@@ -633,7 +641,7 @@ class FinanceEngine {
       rateProvider: rateProvider,
       asOf: asOf,
     );
-    unavailable.addAll(invalid);
+    unavailable.addAll(invalid.map((error) => '$error'));
     final usable = movementsComplete && booksAreSound && invalid.isEmpty;
 
     final booksConvert = foreignBooks.isEmpty;
@@ -668,9 +676,11 @@ class FinanceEngine {
   /// would combine a real FIFO position with cash that never moved that way, so
   /// the report has to withhold its totals rather than look complete. Errors of
   /// records outside these accounts are somebody else's report to withhold.
+  /// A snapshot leaving the app scopes its completeness markers through here
+  /// too, so a caller approved for some accounts learns nothing about the rest.
   // ponytail: revalidates the whole document per report; pass the caller's
   // errors in if reports ever run per widget rather than per opened tracker.
-  static List<String> _invalidRecords(
+  static List<ValidationError> scopedErrors(
     TrackerDocument doc,
     Set<String> accountIds, {
     required Map<String, Set<String>> quoteCurrencies,
@@ -728,7 +738,7 @@ class FinanceEngine {
             accountIds.contains,
           ),
         })
-          '$error',
+          error,
     ];
   }
 

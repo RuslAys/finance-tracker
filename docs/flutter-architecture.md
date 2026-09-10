@@ -2,7 +2,7 @@
 
 Use a small feature-first architecture. Do not introduce Clean Architecture layers, repositories, use-case classes, or state-management dependencies without a demonstrated need.
 
-The diagrams describe the target layout. Currently the domain model and calculations, `TrackerController`, read-only dashboard, transactions, and assets screens, the canonical local `.xlsx` reader, and read-only portfolio grouping and reports exist. Portfolio editing, source mapping, and widget configuration are planned. Implement the [product delivery order](product.md#delivery-order) incrementally; do not scaffold future components.
+The diagrams describe the target layout. Currently the domain model and calculations, `TrackerController`, read-only dashboard, transactions, and assets screens, the canonical local `.xlsx` reader, read-only portfolio grouping and reports, and the computed snapshot in `domain/snapshot.dart` exist. Portfolio editing, source mapping, and widget configuration are planned. Implement the [product delivery order](product.md#delivery-order) incrementally; do not scaffold future components.
 
 ```text
 Flutter screens

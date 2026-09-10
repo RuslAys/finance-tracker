@@ -2,6 +2,8 @@
 
 Chat, conversation storage, skills, and the companion are planned, not implemented. These actions belong to the optional AI phase of the [product delivery order](product.md#delivery-order). Core tracking, goals, and calculations remain independent of AI.
 
+The one implemented piece is the data boundary they all sit behind: `domain/snapshot.dart` computes the scoped, read-only snapshot from `FinanceEngine` results — totals, the period they cover, categories, holdings, and freshness and completeness markers, with every unavailable total carrying its reason. It carries no transaction rows, payees, descriptions, bank identity, or file paths. Account names and every row UUID stay behind too: an account is named by a per-snapshot pseudonym such as `cash EUR 1`, and a validation failure is reported as a count per tab rather than by the rows it names, which would otherwise carry row identity — and, in a scoped snapshot, accounts the scope excluded. Approval remains the caller's decision: the snapshot bounds what may be sent, not whether to send it.
+
 ## Conversation storage
 
 Keep saved history, displayed messages, and model context separate:
