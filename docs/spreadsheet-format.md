@@ -175,6 +175,19 @@ Consolidation will need separate source tracker/entity provenance, explicit acco
 
 Ship concrete columns, validation, migration/backup behavior, and runnable round-trip and finance checks together with the implementing release. Keep UUIDs, dates, minor-unit text encoding, and the no-formulas/no-external-links rules unchanged.
 
+## Planned column extensions
+
+These versioned extensions are planned; they are not accepted by the current domain and land with their implementing releases:
+
+- `accounts`: a broader `type` set (`checking | savings | cash | brokerage | crypto`).
+- `transactions`: `value_date` alongside the booking date, `counterparty`, and `modified_at`.
+- `trades`: `settlement_date`, an explicit `gross_minor` recorded so totals do not depend on rounding, `tax_minor`, and `fee_currency`. Multiple fees per trade are summed; a `TradeFees` sheet is a future explicit schema extension, not scaffolded now.
+- `instruments`: `isin`, `exchange_mic`, optional `price_provider` (per-instrument override; empty means the per-type default), and optional `provider_symbol` for a provider's differing ticker notation.
+- `prices` and `fx_rates`: `retrieved_at`; both stay append-only observations with a per-row provider.
+- `imports`: mapping profile, coverage period, and per-source data-through dates.
+
+Deduplication remains keyed on the bank identity `(account_id, source, source_id)` with `row_fingerprint` checked on every row — a bare institution ID is not unique across banks or accounts, and deduplication never relies on date and amount alone. A broker import creates both the trade and its linked settlement transaction, or marks the settlement incomplete; re-importing the same file is idempotent.
+
 ## Row fingerprints
 
 `row_fingerprint` is lowercase hexadecimal SHA-256 over a versioned, length-prefixed UTF-8 sequence. Each field is encoded as its decimal UTF-8 byte length, an ASCII `:`, then its UTF-8 bytes; fields are concatenated in the listed order. This encoding cannot collide when field content contains delimiters.
@@ -186,22 +199,33 @@ Before encoding, UUIDs are lowercase, dates are ISO text, integers use base-10 w
 
 The app stores a fingerprint for every imported transaction and trade, including rows with a `source_id`. This allows a later export without stable source IDs to detect an overlapping prior import. A migration that changes any canonical fingerprint input must recompute affected fingerprints, preview collisions, and receive user confirmation before commit.
 
-## Local layout
+## State directory
+
+The workbook lives in a state directory whose layout is identical on a local folder and a cloud provider folder:
 
 ```text
-my-finance/
-├── finance-tracker.xlsx
-├── imports/       # optional original bank files
-└── backups/       # dated workbook copies
+FinanceTracker/
+├── tracker                 # canonical spreadsheet — single source of truth
+├── profile.yaml            # user profile (goals, preferences)
+├── config/
+│   ├── providers.yaml      # market-data and FX provider config (key_refs only)
+│   └── mappings/*.yaml     # saved import mapping profiles
+├── imports/
+│   ├── inbox/              # incoming bank/broker statements
+│   └── processed/YYYY-MM/  # originals after successful import (audit trail)
+├── backups/<timestamp>/    # snapshot before every applied write, rotated
+└── journal/                # write-intent journal for crash recovery
 ```
 
-Keep raw bank files outside version control.
+The canonical spreadsheet takes the storage backend's native form: in a local directory it is a `tracker.xlsx` workbook; in a cloud provider folder it is the provider's native spreadsheet document (a Google Sheet first), addressed by the provider's document ID and revision. A cloud tracker never keeps an `.xlsx` copy beside the native document — that would be a second source, and a tracker has exactly one. Both forms carry the same tabs and columns defined in this document.
+
+Keep raw bank files outside version control. Config files hold only `key_ref` references, never API keys.
 
 ## Custom schemas and mappings
 
 The tabs and columns above are the canonical schema. The following mapping contract is planned; the current reader uses canonical tab/header names and does not load `mappings`. A user may use a custom spreadsheet schema when a valid mapping converts it to the canonical model used by the app. All feature widgets consume reports over that same model. The planned `SnapshotBuilder` then produces the approved scoped data exposed to analytics, MCP tools, and LLMs.
 
-A workbook open or import selects exactly one `mapping_id`; profiles may contain mappings for several entities. This allows custom tracker layouts independently of bank imports. Store portable mapping rows in a `mappings` tab. Before workbook writing is available, a local profile file may carry the same mapping semantics, bound to the selected tracker/source. Select one active profile explicitly; do not silently merge local and embedded definitions. Boolean values use the lowercase text encoding defined above:
+A workbook open or import selects exactly one `mapping_id`; profiles may contain mappings for several entities. This allows custom tracker layouts independently of bank imports. Mapping profiles are plain YAML files in the state directory's `config/mappings/` and travel in the portable config bundle; a workbook may also embed the same rows in a `mappings` tab. Select one active profile explicitly; do not silently merge file-based and embedded definitions. Boolean values use the lowercase text encoding defined above:
 
 `mapping_id, entity, canonical_field, source_tab, source_column, transform, parameters, required, priority, status`
 
@@ -231,7 +255,7 @@ A sheet of current instrument quantities and values cannot provide trade history
 
 ### Configuration persistence
 
-Keep device-specific widget visibility, order, titles, scopes, fields, and report options outside the canonical finance tables, keyed by tracker and stable widget instance IDs. Widget references use canonical account/portfolio IDs. Renaming a source column updates the source profile once, not each widget.
+Keep all widget settings outside the canonical finance tables, keyed by tracker and stable widget instance IDs. Visibility, order, and position are always device-specific. A widget instance's definition — title, data scope, fields, grouping, and reporting options — is device-local by default but may be explicitly marked portable for the config bundle. Widget references use canonical account/portfolio IDs. Renaming a source column updates the source profile once, not each widget.
 
 `mapping_version` versions the selected mapping set; `layout_version` changes when the spreadsheet layout changes. Presentation-only edits change neither. Local profile saves leave the workbook untouched; saving mappings into a workbook requires the planned writer, backup, and recovery path. Finalize local profile serialization with implementation while preserving portability to the embedded mapping contract.
 

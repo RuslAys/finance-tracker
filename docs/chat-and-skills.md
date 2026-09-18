@@ -1,6 +1,8 @@
 # Chat and reusable AI skills
 
-Chat, conversation storage, skills, and the companion are planned, not implemented. These actions belong to the optional AI phase of the [product delivery order](product.md#delivery-order). Core tracking, goals, and calculations remain independent of AI.
+Chat, conversation storage, and skills are planned, not implemented. They belong to the optional AI phases of the [product delivery order](product.md#delivery-order). Core tracking, goals, and calculations remain independent of AI.
+
+> **Routing:** all chat goes through the in-app `LlmProvider` abstraction described in the [architecture](architecture.md#llm-providers-and-the-agent); the earlier [companion](local-companion.md) route is superseded. Chat is available on native platforms (mobile and desktop); it is unavailable on web under the current architecture.
 
 The one implemented piece is the data boundary they all sit behind: `domain/snapshot.dart` computes the scoped, read-only snapshot from `FinanceEngine` results — totals, the period they cover, categories, holdings, and freshness and completeness markers, with every unavailable total carrying its reason. It carries no transaction rows, payees, descriptions, bank identity, or file paths. Account names and every row UUID stay behind too: an account is named by a per-snapshot pseudonym such as `cash EUR 1`, and a validation failure is reported as a count per tab rather than by the rows it names, which would otherwise carry row identity — and, in a scoped snapshot, accounts the scope excluded. Approval remains the caller's decision: the snapshot bounds what may be sent, not whether to send it.
 
@@ -16,9 +18,9 @@ Keep saved history, displayed messages, and model context separate:
 
 Use disk-backed SQLite when saved chat ships, with ordinary Dart collections for the RAM working set. Do not add an in-memory database or load the whole transcript into `ChatController`. Unlike the optional workbook cache, saved chat is user data that cannot be rebuilt from the spreadsheet. It is device-local application state, not a third authoritative finance source or data to synchronize into the workbook.
 
-Prefer one SQLite schema and query implementation across platforms. Native database work runs outside the UI isolate; web uses SQLite WASM in a worker with persistent browser storage. Evaluate a maintained integration such as [Drift](https://drift.simonbinder.eu/platforms/web/) when implementing this feature; no dependency is selected now. Handle quotas, unavailable persistence, cleared site data, and multi-tab access explicitly. If persistence fails, show the failure and offer session-only use without claiming the conversation is saved. Web chat remains limited to a build served by the companion's loopback origin.
+Prefer one SQLite schema and query implementation across platforms. Native database work runs outside the UI isolate. Chat is unavailable on web under the current architecture; if that changes, web would use SQLite WASM in a worker with persistent browser storage and must handle quotas, unavailable persistence, cleared site data, and multi-tab access explicitly. Evaluate a maintained integration such as [Drift](https://drift.simonbinder.eu/platforms/web/) when implementing this feature; no dependency is selected now. If persistence fails, show the failure and offer session-only use without claiming the conversation is saved.
 
-Flutter owns saved conversations; the companion remains a transient provider gateway. Do not add a second transcript database to the companion. Follow the [saved-history privacy rules](privacy-and-llm.md#saved-chat-and-external-agents).
+Flutter owns saved conversations; provider adapters keep only bounded request/response state and never a second transcript database. Follow the [saved-history privacy rules](privacy-and-llm.md#saved-chat-and-external-agents).
 
 ## Responsive streaming
 
@@ -53,21 +55,20 @@ Keep one authoritative source for each skill and package it for the relevant hos
 
 | Host | Recommended integration |
 | --- | --- |
-| Flutter mobile | App selects a reviewed workflow and prepares the approved snapshot before calling the configured provider. No arbitrary skill scripts. |
-| Companion-served web and Flutter desktop | Reuse the same instructions and app-controlled workflow through the companion route; no general-purpose script runtime. |
-| Codex | Package for supported skill/plugin discovery; repository skills use `.agents/skills`. Configure the companion MCP connection separately. |
+| Flutter app (mobile and desktop) | App selects a reviewed workflow and prepares the approved snapshot before calling the configured provider. No arbitrary skill scripts. |
+| Codex | Package for supported skill/plugin discovery; repository skills use `.agents/skills`. |
 | Claude Code | Package for `.claude/skills` or a plugin, keeping Claude-specific extensions outside the portable core. |
-| Antigravity | Current workspace discovery uses `.agents/skills`, with legacy `.agent/skills` support. Configure MCP separately. |
+| Antigravity | Current workspace discovery uses `.agents/skills`, with legacy `.agent/skills` support. |
 
 Verify host conventions when packaging: [Codex](https://learn.chatgpt.com/docs/build-skills), [Claude Code](https://code.claude.com/docs/en/skills), and [Antigravity](https://www.antigravity.google/docs/ide/skills/). Calling a provider model does not automatically load skills installed in its coding-agent product. Provider-native execution requires additional runtime configuration; [OpenAI shell skills](https://developers.openai.com/api/docs/guides/tools-skills) and [Claude API skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) are not required for the initial instruction-only workflows.
 
-External agents obtain calculated data through the companion's narrow, read-only MCP tools. Skills explain how to use those results; MCP provides capabilities and data, not universal skill installation. The app's initial workflow supplies its snapshot directly without adding an autonomous tool loop. See [MCP server concepts](https://modelcontextprotocol.io/docs/2026-07-28/learn/server-concepts).
+The app's workflow supplies its snapshot directly through the in-app provider abstraction without adding an autonomous tool loop. External agents currently have no data access: the companion's read-only MCP tools are superseded, and any future MCP surface would need its own authenticated, scoped design following the retained [companion contract](local-companion.md) principles. Skills explain how to use calculated results; they provide no capabilities or data themselves.
 
-The app and companion enforce authentication, approved scope, expiry, and result-size limits independently of skill text. Never expose Google tokens, raw spreadsheet access, or generic database queries to a skill. Do not treat `allowed-tools` metadata as a portable sandbox: support varies, and some hosts use it to pre-approve tools rather than restrict other capabilities. Review updates, pin versions, and record the version used for an answer. Loading instructions cannot expand permissions or switch providers. External hosts may have other tools and retention policies outside the app's control.
+The app enforces approved scope, expiry, and result-size limits independently of skill text. Never expose Google tokens, raw spreadsheet access, or generic database queries to a skill. Do not treat `allowed-tools` metadata as a portable sandbox: support varies, and some hosts use it to pre-approve tools rather than restrict other capabilities. Review updates, pin versions, and record the version used for an answer. Loading instructions cannot expand permissions or switch providers. External hosts may have other tools and retention policies outside the app's control.
 
 ## Delivery actions
 
 1. When chat ships, implement bounded streaming, model context, and user-visible interruption states together; add local SQLite when saved history ships.
 2. Validate long-history and oversized-message behavior on representative mobile, web, and desktop targets before claiming stable resource usage.
 3. Add a small reviewed set of instruction-only skills over approved snapshots, with synthetic checks for missing/stale data and attempts to exceed scope.
-4. Package those skills for external agents when the authenticated read-only companion ships. Keep vector databases, skill marketplaces, arbitrary script execution, and autonomous agent loops deferred until a concrete feature requires them.
+4. Packaging skills for external agents is deferred along with any external data access. Keep vector databases, skill marketplaces, arbitrary script execution, and autonomous agent loops deferred until a concrete feature requires them.

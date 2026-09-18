@@ -12,9 +12,9 @@ All changes are AI-generated or AI-assisted unless a human author states otherwi
 - The Flutter client owns finance calculations, validation, and bank-import handling.
 - Household ownership is attribution, not access control. Keep private records outside shared files.
 - Goals and actions must work without an LLM. Completing an action never moves money or increases goal progress; withhold affected suggestions when data is invalid, stale, or incomplete.
-- A tracker is stored in either a local `.xlsx` workbook or a Google Sheet; do not introduce automatic two-way synchronization.
+- A tracker is stored in either a local `.xlsx` workbook or one cloud spreadsheet (Google Sheets first; Microsoft Graph planned); do not introduce automatic two-way synchronization.
 - Keep the spreadsheet schema in [docs/spreadsheet-format.md](docs/spreadsheet-format.md) portable: no macros, formulas, external links, floating-point money, or row-number identifiers.
-- The optional local companion is not a hosted backend and never owns the tracker data.
+- AI access is BYOK through the in-app provider abstraction; the earlier optional local companion is superseded, and no external process owns the tracker data.
 - Never use real financial records, bank exports, OAuth tokens, or API keys in the repository.
 
 ## Documentation

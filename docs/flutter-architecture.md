@@ -11,9 +11,10 @@ TrackerController / ChatController
    ↓
 Canonical TrackerDocument
    ├── FinanceEngine       # deterministic reports, goal progress, suggestions
-   ├── SchemaMapper        # custom workbook or Sheet → canonical fields
-   ├── TrackerStore        # XLSX or Google Sheets read/write
-   └── SnapshotBuilder     # scoped, read-only data for local AI companion
+   ├── ToolLayer           # typed read/proposal/analytics API, LLM-independent
+   ├── SchemaMapper        # custom workbook or sheet → canonical fields
+   ├── SpreadsheetStore / DirectoryStore  # storage adapters, journaled writes
+   └── SnapshotBuilder     # scoped, read-only data for LLM providers
 ```
 
 ## Layout
@@ -31,7 +32,7 @@ app/
 │   ├── storage/
 │   │   ├── xlsx_store.dart    # implemented: read-only local XLSX
 │   │   ├── xlsx_parts.dart    # implemented: SpreadsheetML cell reader
-│   │   ├── tracker_store.dart # local XLSX and Google Sheets contract
+│   │   ├── store.dart         # SpreadsheetStore / DirectoryStore contracts
 │   │   ├── google_sheets_store.dart
 │   │   └── mapping.dart       # custom mappings and migrations
 │   └── features/
@@ -45,7 +46,7 @@ app/
 └── test/
 ```
 
-`TrackerStore` is the only storage interface because the product explicitly supports two storage backends. It converts a workbook or Google Sheet through `SchemaMapper` before exposing a canonical `TrackerDocument`. Only `xlsx_store.dart` exists so far: it reads the canonical tabs of a local workbook and throws with every problem found rather than opening a partly understood file. One reader needs no interface; add `TrackerStore` when a second backend or a writer arrives.
+`SpreadsheetStore` and `DirectoryStore` are the planned storage interfaces: reading ranges/tables, batched writes, sheet metadata, document revision and concurrent-edit detection, and capability declarations (`canWrite`, `atomicWrite`, `survivesCrash`, `persistentAccess`, `streamingRead`); see the [storage model](architecture.md#storage-model). A store converts a workbook or cloud spreadsheet through `SchemaMapper` before exposing a canonical `TrackerDocument`. Only `xlsx_store.dart` exists so far: it reads the canonical tabs of a local workbook and throws with every problem found rather than opening a partly understood file. One reader needs no interface; add the interfaces when the writer or a second backend arrives.
 
 ## Large workbooks
 
@@ -81,7 +82,7 @@ Introduce disk-backed SQLite only if retained data size, repeated queries, or re
 
 If a database becomes necessary, prefer a shared SQLite schema and query implementation across native and web rather than unrelated database models. Evaluate a maintained Flutter integration such as [Drift](https://drift.simonbinder.eu/platforms/web/) then; no database dependency is selected now. Native uses filesystem storage, while web needs SQLite WASM, workers, and browser storage such as OPFS. Browser quotas, cleared site data, private-mode fallbacks, and multi-tab locking remain platform concerns. Do not silently fall back to an in-memory database for a workbook that exceeds the memory budget. Some configurations require COOP/COEP headers that affect Google authentication popups; test the database and OAuth flow together.
 
-SQLite used for workbook caching is a rebuildable, app-local cache, never a third tracker source or an automatic synchronization mechanism. Identify cached data by source identity and content/version plus schema and mapping versions, not just a path or tracker ID. Activate a replacement only after loading and validation succeed. A failed refresh leaves any retained results explicitly stale or unavailable, never an empty or current-looking tracker. Browser cache loss requires reopening the source. The optional companion neither builds nor owns this cache.
+SQLite used for workbook caching is a rebuildable, app-local cache, never a third tracker source or an automatic synchronization mechanism. Identify cached data by source identity and content/version plus schema and mapping versions, not just a path or tracker ID. Activate a replacement only after loading and validation succeed. A failed refresh leaves any retained results explicitly stale or unavailable, never an empty or current-looking tracker. Browser cache loss requires reopening the source. No external process builds or owns this cache.
 
 A persistent cache creates another copy of financial data. Keep it in app-private storage, provide deletion, define retention and backup behavior, and do not treat ordinary SQLite as encrypted storage. Credentials belong in the separate [credential stores](privacy-and-llm.md#credentials), never in cached tracker tables.
 
@@ -126,5 +127,5 @@ Use small typed settings and existing Flutter state primitives. Source mappings 
 - Goal allocations cannot exceed available funds or allocate the same money twice. Marking an action done changes action state only.
 - Later consolidation normalizes and reconciles approved sources in Flutter before calculation. Retain provenance outside bank identity fields and do not mutate source trackers.
 - `SchemaMapper` is the compatibility boundary for user-customised schemas.
-- `SnapshotBuilder` provides scoped, read-only data to the local companion.
-- The local companion never parses spreadsheets or reimplements finance calculations.
+- `SnapshotBuilder` provides scoped, read-only data to LLM providers.
+- An LLM never parses spreadsheets or reimplements finance calculations; it reaches the domain only through the typed tool layer, and its patches apply through proposal → validation → confirmation → journaled write → read-back verification.

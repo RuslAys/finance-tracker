@@ -2,13 +2,13 @@
 
 ## Product promise
 
-Understand your finances, plan goals, and know what to do next. Keep your data in your own workbook or Google Sheet. Optional family features help you manage shared accounts and goals together.
+Understand your finances, plan goals, and know what to do next. Keep your data in spreadsheets you control: a local `.xlsx` workbook or a cloud spreadsheet (Google Sheets first; Microsoft Excel over OneDrive/SharePoint planned). Optional family features help you manage shared accounts and goals together.
 
-Client-first means Flutter owns finance calculations, validation, and practical budgeting suggestions, whether storage is local or in Google Sheets. Optional AI explains those results and discusses alternatives. Personal and household reports, goals, and actions must work without an LLM or a product-operated backend.
+Client-first means Flutter owns finance calculations, validation, and practical budgeting suggestions, whatever the storage backend. An optional LLM-powered agent explains results, proposes document-structure and record changes that the core validates and the user confirms, and configures analytics widgets; it never computes a figure and never writes directly. Personal and household reports, goals, and actions must work without an LLM or a product-operated backend.
 
 ## Current state
 
-Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, a read-only local `.xlsx` reader, and read-only named investment portfolios with their combined summary. Editing portfolio membership, configurable widgets, custom source mappings, workbook writing, Google Sheets, editing, bank imports, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, a read-only local `.xlsx` reader, and read-only named investment portfolios with their combined summary. Editing portfolio membership, configurable widgets, custom source mappings, workbook writing, cloud spreadsheet providers, editing, bank imports, market-data providers, the user profile, the config bundle, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
 
 ## Investment portfolios
 
@@ -35,7 +35,7 @@ Custom layouts remain subject to stable identifiers, exact money conversion, and
 
 ## Personal tracking with optional family features
 
-Start with one personal tracker for accounts, reports, goals, and actions. Individual use requires no household, member setup, or sharing. Its source of truth is either one local `.xlsx` workbook or one Google Sheet.
+Start with one personal tracker for accounts, reports, goals, and actions. Individual use requires no household, member setup, or sharing. Its source of truth is either one local `.xlsx` workbook or one cloud spreadsheet — never both.
 
 When family features are needed, add members and ownership to the tracker to include personal and joint accounts and shared goals. Start family support with one shared tracker before implementing consolidation. A shared Google Sheet is the first family pilot target; a local workbook supports an individual or household managed on one device. A local file alone does not provide collaboration between devices.
 
@@ -85,7 +85,7 @@ Guidance covers budgeting and user-chosen goals. It does not execute payments or
 
 Initially, monitoring means recalculating after an explicit refresh or edit while the app is open. Show both when data was refreshed and the date through which records are complete; a recent refresh does not establish current financial coverage. Reminders to update data must not claim that new bank activity was detected.
 
-Continuous monitoring while the app is closed requires a separately designed execution path. The optional companion does not fetch source records, import transactions, or keep tracker data after the approved snapshot expires.
+Continuous monitoring while the app is closed requires a separately designed execution path. Quote refresh is always an explicit user action, and no background process fetches source records or imports transactions.
 
 Before goals or suggestions rely on reporting:
 
@@ -96,12 +96,19 @@ Before goals or suggestions rely on reporting:
 
 ## Delivery order
 
-1. Correct reporting periods, currency coverage, historical calculations, and data-quality handling, with runnable regression tests. Periods, booking-date conversion, and as-of filtering are done; data-through and staleness reporting remain.
-2. Implement one storage adapter and editing for personal use, with verified writes and recovery. Reading a local `.xlsx` tracker is done; writing, backup, and recovery are not, and no screen edits anything yet.
-3. Add investment portfolios and their combined summary over the canonical format; then custom source mapping with preview and saved profiles; then configuration controls across Dashboard, Transactions, and Assets. Reporting prerequisites apply to each slice. Reading portfolios and reporting them individually and combined is done; naming portfolios and assigning accounts from the app waits on verified writes and recovery. Local configuration need not wait for workbook writing.
-4. Add personal savings goals, validated allocations, and explainable actions; then add bank imports and commitments to reduce manual upkeep. New feature widgets follow the same configuration requirements.
-5. Add optional household members, account ownership, shared goals/actions, and Household/Mine/Joint views. Use one shared Google Sheet for the family pilot; verify concurrent-edit behavior before enabling shared editing.
-6. Add one-way consolidation when private or separate sources are needed, extending the local workbook adapter as required.
-7. Add optional AI explanations after the helper is useful without them.
+The order is deliberate: writes come first because the agent is useless without something to shape; the tool layer precedes the LLM because it is the core's API and its own test surface; one real cloud backend precedes the second so abstractions are designed against reality; quote providers precede the profile because analytics needs valuations before it needs memory; and AI remains optional, added after the helper is useful without it.
+
+1. Storage abstraction, the state directory, and journaled verified writes, starting with the local directory adapter.
+2. The LLM-independent domain tool layer: read, proposal, and analytics tools over the core.
+3. The first cloud provider (Google Sheets/Drive), enabling cloud mode on mobile and the only writable mode on web.
+4. Statement import adapters with mapping profiles, streamed previews, and idempotent re-import.
+5. The LLM provider abstraction and the agent loop, with every applied patch journaled and reversible.
+6. BYOK market-data providers with keyless defaults and explicit refresh.
+7. The user profile (goal memory) in `profile.yaml`.
+8. The app as analytics control panel: agent-configured widgets with click-through lineage.
+9. The portable config bundle.
+10. The second spreadsheet provider (Microsoft Graph), further model providers, and cross-provider hardening. Household features and consolidation extend onto cloud sources only after this.
+
+Personal savings goals, validated allocations, and explainable actions ship over the tool layer once the reporting prerequisites above hold. Household members, shared goals/actions, and Household/Mine/Joint views follow the shared-cloud-spreadsheet family pilot, with concurrent-edit behavior verified before shared editing; one-way consolidation comes after that.
 
 Update the versioned schema when implementing portfolio membership, ownership, allocation, import, or consolidation behavior. Add runnable checks for portfolio aggregation without double counting, missing-data handling, exact mapping conversions, and persisted widget scopes as those features ship. Do not scaffold the later phases in advance.

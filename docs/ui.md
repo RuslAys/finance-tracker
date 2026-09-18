@@ -37,7 +37,7 @@ Every feature widget exposes its applicable settings through an Edit layout or C
 | Data scope | Select portfolios or accounts using stable IDs; display the active scope |
 | Fields and grouping | Choose supported fields, sorting, and grouping for that widget |
 | Reporting | Choose supported period, valuation date, and reporting currency; visibly identify overrides of screen defaults |
-| Persistence | Restore settings on reopening the tracker; offer reset to defaults |
+| Persistence | Restore settings on reopening the tracker; offer reset to defaults. Settings are device-local unless the instance's definition is explicitly marked portable for the config bundle; visibility, order, and position are never portable |
 
 Hiding a widget does not remove its records from tracker totals. Overlapping widget scopes are views, not values to add together. Removed account or portfolio references produce an actionable configuration error rather than silently broadening a widget to all accounts. Financial rules, required data-quality notices, and accessible labels cannot be disabled through presentation settings.
 
@@ -49,7 +49,11 @@ For example, map `Broker activity / Execution date` to `trades.traded_on` once, 
 
 Explain which widgets become available from the mapped entities and which still need data. Distinguish a mapped table with no records from an unmapped or invalid table. Never display unavailable investments as a zero balance or manufacture trade history from a holdings snapshot.
 
-Source profiles are portable; widget presentation preferences are local to the device and tracker. If a profile is saved locally while the workbook reader remains read-only, state that clearly. A changed source layout requires revalidation and a preview before activating its updated mapping. Preserve the last valid profile if setup is cancelled or validation fails.
+Source profiles are portable. Widget settings are device-local by default; the user may mark a widget instance's definition (title, data scope, fields, grouping, reporting options) portable for the config bundle, while presentation — visibility, order, position — always stays local to the device and tracker. If a profile is saved locally while the workbook reader remains read-only, state that clearly. A changed source layout requires revalidation and a preview before activating its updated mapping. Preserve the last valid profile if setup is cancelled or validation fails.
+
+## Analytics control panel
+
+When the agent ships, its conversations produce persistent UI, not one-off answers. Each dashboard widget is a materialized core query the agent can create and configure through the widget-settings model above — "show my food spending trend" becomes a scoped widget instance. Every figure exposes click-through lineage (source rows, FX rate, price provider) in the UI, and an "explain" action feeds that trace to the LLM only in the redacted lineage-row form and as the selected [data-sharing mode](privacy-and-llm.md#llm-analytics) permits. The agent action journal, with per-change rollback, is surfaced in the UI.
 
 ## Library choice
 

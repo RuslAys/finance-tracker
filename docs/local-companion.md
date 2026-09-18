@@ -1,8 +1,8 @@
 # Local companion
 
-The local companion is optional. It is not a hosted backend and does not become the finance data source of truth.
+> **Status: superseded.** The current [architecture](architecture.md#llm-providers-and-the-agent) routes all chat and analytics through the in-app `LlmProvider` abstraction — including local models such as Ollama — and exposes the domain through the LLM-independent tool layer. No companion process is on the roadmap. This document is retained for reference only; its snapshot-scoping, pairing, and read-only principles remain valid if a companion is ever revisited.
 
-It is not implemented and follows the core reporting, storage, and goals work in the [delivery order](product.md#delivery-order). The core helper works without it.
+The local companion is optional. It is not a hosted backend and does not become the finance data source of truth. It is not implemented, and the core helper works without it.
 
 ## Responsibilities
 

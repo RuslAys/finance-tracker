@@ -1,6 +1,6 @@
 # Finance Tracker
 
-An open-source, client-first financial helper for mobile and web: understand your finances, plan goals, and choose practical next steps using spreadsheets you control. Optional family features support shared accounts and goals.
+An open-source, client-first financial helper for mobile, desktop, and web: understand your finances, plan goals, and choose practical next steps using spreadsheets you control — a local `.xlsx` workbook or a cloud spreadsheet. Optional family features support shared accounts and goals.
 
 Implemented: the Flutter finance domain, validation, deterministic calculations, a read-only local `.xlsx` reader, read-only investment portfolios, and a read-only Material 3 UI. Portfolio editing, configurable widgets, custom spreadsheet mappings, writing/editing, imports, household features, goals, monitoring, and AI integrations are planned.
 
@@ -10,11 +10,12 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 ## Product direction
 
-- Start with one personal tracker in a local `.xlsx` workbook or one Google Sheet; add household members and shared goals when needed.
-- Keep calculations, bank-import validation, and goal-based budgeting guidance in Flutter.
+- Start with one personal tracker in a local `.xlsx` workbook or one cloud spreadsheet (Google Sheets first; Excel over OneDrive/SharePoint planned); add household members and shared goals when needed.
+- Keep calculations, bank-import validation, and goal-based budgeting guidance in Flutter; every write is journaled, backed up, and verified.
 - Organize investments into portfolios with a combined summary; configure spreadsheet mappings and feature widgets independently.
+- Fetch quotes from BYOK market-data providers with keyless defaults; refresh is always explicit.
 - Add one-way consolidation of approved separate sources later; no automatic two-way sync.
-- Keep AI explanations optional; goals and actions must work without an LLM.
+- Keep the AI agent optional and BYOK across model providers; it proposes, the deterministic core validates and writes, and goals and actions work without an LLM.
 
 ## Documentation
 
@@ -24,7 +25,7 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 - [User interface](docs/ui.md)
 - [Spreadsheet format](docs/spreadsheet-format.md)
 - [Privacy and LLM boundaries](docs/privacy-and-llm.md)
-- [Local companion](docs/local-companion.md)
+- [Local companion](docs/local-companion.md) (superseded by the in-app provider abstraction)
 
 ## Status
 
