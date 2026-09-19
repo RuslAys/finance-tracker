@@ -7,6 +7,7 @@ import 'features/assets/assets_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/tracker_controller.dart';
 import 'features/transactions/transactions_screen.dart';
+import 'storage/workbook_picker.dart';
 
 class FinanceTrackerApp extends StatelessWidget {
   const FinanceTrackerApp({super.key, required this.controller});
@@ -67,16 +68,39 @@ class _HomeShellState extends State<HomeShell> {
 
   void _select(int index) => setState(() => _index = index);
 
+  /// Opens a workbook the user picks, replacing the open tracker.
+  ///
+  /// A file that cannot be read exactly, or one whose observations name
+  /// several providers, is reported and changes nothing: the tracker already
+  /// open keeps reporting its own numbers rather than half of another file's.
+  Future<void> _openWorkbook() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final picked = await pickWorkbook();
+      if (picked == null) return;
+      widget.controller.open(picked.document, source: picked.name);
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final destination = _destinations[_index];
     final body = SafeArea(child: destination.builder(widget.controller));
+    final actions = [
+      IconButton(
+        icon: const Icon(Icons.folder_open),
+        tooltip: 'Open workbook',
+        onPressed: _openWorkbook,
+      ),
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 600) {
           return Scaffold(
-            appBar: AppBar(title: Text(destination.label)),
+            appBar: AppBar(title: Text(destination.label), actions: actions),
             body: body,
             bottomNavigationBar: NavigationBar(
               selectedIndex: _index,
@@ -92,7 +116,7 @@ class _HomeShellState extends State<HomeShell> {
           );
         }
         return Scaffold(
-          appBar: AppBar(title: Text(destination.label)),
+          appBar: AppBar(title: Text(destination.label), actions: actions),
           body: Row(
             children: [
               NavigationRail(

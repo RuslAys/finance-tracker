@@ -62,6 +62,50 @@ void main() {
     expect(validateTracker(_doc(transactions: [_tx('t1', 100)])), isEmpty);
   });
 
+  test('rejects an account type outside the canonical set', () {
+    // A misspelled brokerage would otherwise drop out of every portfolio view,
+    // reporting the user's investments as an absence rather than as a typo.
+    final doc = TrackerDocument(
+      trackerId: 'trk-1',
+      baseCurrency: 'EUR',
+      currencies: const {'EUR': 2},
+      accounts: const {
+        'acc-1': Account(
+          id: 'acc-1',
+          name: 'Broker',
+          type: 'brokrage',
+          currency: 'EUR',
+        ),
+      },
+    );
+    expect(
+      _messages(doc),
+      contains(startsWith('type "brokrage" is not one of')),
+    );
+    // Every type this stage's two sources produce is accepted.
+    for (final type in accountTypes) {
+      expect(
+        validateTracker(
+          TrackerDocument(
+            trackerId: 'trk-1',
+            baseCurrency: 'EUR',
+            currencies: const {'EUR': 2},
+            accounts: {
+              'acc-1': Account(
+                id: 'acc-1',
+                name: type,
+                type: type,
+                currency: 'EUR',
+              ),
+            },
+          ),
+        ),
+        isEmpty,
+        reason: type,
+      );
+    }
+  });
+
   test('rejects a transaction currency that differs from its account', () {
     expect(
       _messages(_doc(transactions: [_tx('t1', 100, currency: 'USD')])),

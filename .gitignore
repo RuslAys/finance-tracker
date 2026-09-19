@@ -6,6 +6,7 @@
 .idea/
 .vscode/
 .claude/
+.mcp.json
 build/
 data/
 /imports/

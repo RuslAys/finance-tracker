@@ -13,7 +13,7 @@ import '../domain/models.dart';
 import '../domain/schema.dart';
 import 'xlsx_parts.dart';
 
-export 'xlsx_parts.dart' show WorkbookFormatException;
+export 'xlsx_parts.dart' show WorkbookFormatException, WorkbookLimits;
 
 /// Thrown when a workbook cannot be read exactly.
 ///
@@ -30,21 +30,31 @@ class WorkbookError implements Exception {
 
 /// Reads workbook [bytes] into a tracker document.
 ///
+/// This is the entry point a browser reaches: a file chosen in a browser
+/// arrives as bytes and never as a `dart:io` path. It holds the whole
+/// compressed workbook in memory, which is the retention [openWorkbookFile]
+/// exists to avoid, so [limits] is what keeps it bounded rather than a nicety.
+///
 /// The result is parsed, not validated: the caller runs [validateTracker] on
 /// it, exactly as it does for any other document.
-TrackerDocument readWorkbook(List<int> bytes) =>
-    _Reader(WorkbookParts.decode(bytes)).read();
+TrackerDocument readWorkbook(
+  List<int> bytes, {
+  WorkbookLimits limits = const WorkbookLimits(),
+}) => _Reader(WorkbookParts.decode(bytes, limits: limits)).read();
 
 /// Reads the workbook at [path]. The file is opened read-only; v1 has no
 /// writer, so nothing here can damage a tracker.
 ///
 /// The compressed file is read from disk as the reader needs it rather than
 /// held whole, so opening a large workbook costs its parts, not its parts plus
-/// its bytes.
-Future<TrackerDocument> openWorkbookFile(String path) async {
+/// its bytes. Native platforms only; a browser uses [readWorkbook].
+Future<TrackerDocument> openWorkbookFile(
+  String path, {
+  WorkbookLimits limits = const WorkbookLimits(),
+}) async {
   final input = InputFileStream(path);
   try {
-    return _Reader(WorkbookParts.decodeStream(input)).read();
+    return _Reader(WorkbookParts.decodeStream(input, limits: limits)).read();
   } finally {
     await input.close();
   }
@@ -92,7 +102,7 @@ class _Reader {
   /// does not implement, so the workbook is refused rather than half-read.
   Map<String, String> _meta() {
     final values = <String, String>{};
-    final sheet = _sheets['_meta'];
+    final sheet = _sheets.remove('_meta');
     if (sheet == null) {
       _fail('_meta', 'tab', 'Workbook has no _meta tab');
       return values;
@@ -363,13 +373,24 @@ class _Reader {
   /// [optional] columns are read when the header has them and read as blank
   /// when it does not, which is what keeps a workbook written before a column
   /// existed readable by this release.
-  List<Map<String, _Cell>> _rows(
+  ///
+  /// Yielded one row at a time, and each source row and the tab itself are
+  /// released as they are consumed: a tab's row maps are the same records as
+  /// the models being built from them, so holding both at once doubled the
+  /// cost of the largest tab for no gain. Every caller iterates this fully and
+  /// immediately; a caller that stopped early would leave the tab retained,
+  /// not misread it.
+  // ponytail: the cell grid is still built whole by the decoder before any of
+  // this runs, so peak memory is unchanged — only what is held afterwards
+  // shrinks. Streaming sheet rows from `xlsx_parts` into these readers is the
+  // upgrade, and it is a measurement's call, not a guess's.
+  Iterable<Map<String, _Cell>> _rows(
     String tab,
     List<String> columns, {
     List<String> optional = const [],
-  }) {
-    final sheet = _sheets[tab];
-    if (sheet == null || sheet.isEmpty) return const [];
+  }) sync* {
+    final sheet = _sheets.remove(tab);
+    if (sheet == null || sheet.isEmpty) return;
 
     final header = <String, int>{};
     final headerRow = sheet.first;
@@ -381,13 +402,13 @@ class _Reader {
       // whole column through unchecked.
       if (cell.kind == CellKind.opaque) {
         _fail(tab, 'header', 'Column ${index + 1} holds a formula, not a name');
-        return const [];
+        return;
       }
       // Two columns of one canonical name make every row ambiguous: the second
       // would quietly win and could report a different amount entirely.
       if (header.containsKey(name)) {
         _fail(tab, 'header', 'Column $name appears more than once');
-        return const [];
+        return;
       }
       header[name] = index;
     }
@@ -395,13 +416,18 @@ class _Reader {
     if (missing.isNotEmpty) {
       _fail(tab, 'header', 'Missing column${missing.length == 1 ? '' : 's'} '
           '${missing.join(', ')}');
-      return const [];
+      return;
     }
 
-    final rows = <Map<String, _Cell>>[];
-    for (final row in sheet.skip(1)) {
+    final wanted = [...columns, ...optional];
+    var kept = 0;
+    for (var index = 1; index < sheet.length; index++) {
+      final row = sheet[index];
+      // The source row is dropped as soon as its wanted columns are copied out,
+      // so a tab's cells are released while it is being read rather than after.
+      sheet[index] = const [];
       final cells = {
-        for (final column in [...columns, ...optional])
+        for (final column in wanted)
           column: header[column] == null
               ? _blank
               : row.elementAtOrNull(header[column]!) ?? _blank,
@@ -411,14 +437,14 @@ class _Reader {
       // below, so it is checked here rather than through `_text`.
       final key = cells[columns.first]!;
       if (key.text.isEmpty || key.kind == CellKind.opaque) {
-        _fail(tab, 'row ${rows.length + 2}', key.text.isEmpty
+        _fail(tab, 'row ${kept + 2}', key.text.isEmpty
             ? '${columns.first} is blank'
             : '${columns.first} holds a formula, not an identifier');
         continue;
       }
-      rows.add(cells);
+      kept++;
+      yield cells;
     }
-    return rows;
   }
 
   void _unique(bool duplicate, String entity, String id) {

@@ -287,6 +287,136 @@ void main() {
     expect(find.text('Unavailable'), findsWidgets);
   });
 
+  testWidgets('names why net worth is unavailable', (tester) async {
+    // A position nobody priced. The dashboard used to print a bare
+    // "Unavailable", leaving the user to guess which price to add.
+    final controller = TrackerController(
+      TrackerDocument(
+        trackerId: 'unpriced',
+        baseCurrency: 'EUR',
+        currencies: const {'EUR': 2},
+        accounts: const {
+          'acc-1': Account(
+            id: 'acc-1',
+            name: 'Broker',
+            type: 'brokerage',
+            currency: 'EUR',
+          ),
+        },
+        instruments: const {
+          'ins-1': Instrument(
+            id: 'ins-1',
+            symbol: 'VWCE',
+            name: 'World ETF',
+            type: 'etf',
+            currency: 'EUR',
+          ),
+        },
+        transactions: [
+          Transaction(
+            id: 't1',
+            accountId: 'acc-1',
+            bookedOn: parseIsoDate('2026-03-01'),
+            amountMinor: 20000,
+            currency: 'EUR',
+          ),
+          Transaction(
+            id: 't2',
+            accountId: 'acc-1',
+            bookedOn: parseIsoDate('2026-03-01'),
+            amountMinor: -20000,
+            currency: 'EUR',
+            tradeId: 'tr1',
+          ),
+        ],
+        trades: [
+          Trade(
+            id: 'tr1',
+            accountId: 'acc-1',
+            instrumentId: 'ins-1',
+            tradedOn: parseIsoDate('2026-03-01'),
+            side: TradeSide.buy,
+            units: Decimal.parse('2'),
+            priceMinor: 10000,
+            currency: 'EUR',
+          ),
+        ],
+      ),
+    );
+    expect(controller.validationErrors, isEmpty);
+    expect(controller.netWorthMinor, isNull);
+
+    await tester.pumpWidget(FinanceTrackerApp(controller: controller));
+    expect(
+      find.text('No price for ins-1 on ${formatIsoDate(controller.asOf)}'),
+      findsOneWidget,
+    );
+  });
+
+  test('opening a workbook reports it with its own providers', () {
+    final controller = _controller();
+    final opened = TrackerDocument(
+      trackerId: 'opened',
+      baseCurrency: 'EUR',
+      currencies: const {'EUR': 2, 'USD': 2},
+      accounts: const {
+        'acc-1': Account(
+          id: 'acc-1',
+          name: 'Checking',
+          type: 'checking',
+          currency: 'EUR',
+        ),
+      },
+      transactions: [
+        Transaction(
+          id: 't1',
+          accountId: 'acc-1',
+          bookedOn: parseIsoDate('2026-03-01'),
+          amountMinor: 10000,
+          currency: 'EUR',
+        ),
+      ],
+      fxRates: [
+        FxRate(
+          baseCurrency: 'EUR',
+          quoteCurrency: 'USD',
+          pricedOn: parseIsoDate('2026-03-01'),
+          rate: Decimal.parse('1.1'),
+          provider: 'ecb',
+        ),
+      ],
+    );
+    controller.open(opened, source: 'tracker.xlsx');
+    expect(controller.source, 'tracker.xlsx');
+    // Kept from the sample, the new file's one rate would be invisible.
+    expect(controller.rateProvider, 'ecb');
+    expect(controller.netWorthMinor, 10000);
+
+    // A workbook naming two providers picks neither, and leaves the tracker
+    // already open reporting its own numbers.
+    expect(
+      () => controller.open(
+        TrackerDocument(
+          trackerId: 'ambiguous',
+          baseCurrency: 'EUR',
+          currencies: const {'EUR': 2, 'USD': 2},
+          fxRates: [
+            for (final provider in ['ecb', 'stooq'])
+              FxRate(
+                baseCurrency: 'EUR',
+                quoteCurrency: 'USD',
+                pricedOn: parseIsoDate('2026-03-01'),
+                rate: Decimal.parse('1.1'),
+                provider: provider,
+              ),
+          ],
+        ),
+      ),
+      throwsStateError,
+    );
+    expect(controller.document.trackerId, 'opened');
+  });
+
   testWidgets('uses a bar on a compact window and a rail on a wide one', (
     tester,
   ) async {

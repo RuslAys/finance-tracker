@@ -355,8 +355,11 @@ FinanceSnapshot buildSnapshot(
         );
   if (ids != null) {
     incomplete.add('Net worth covers the whole tracker, not $scopeLabel');
-  } else if (netWorth == null) {
+  } else if (netWorth == null || !netWorth.isComplete) {
     incomplete.add('Net worth is unavailable on ${formatIsoDate(asOf)}');
+    // The engine's own reasons. This total covers the whole tracker, so they
+    // name nothing outside the approved scope.
+    incomplete.addAll(netWorth?.unavailable ?? const []);
   }
   for (final currency in cashFlow?.unconvertedCurrencies ?? const <String>{}) {
     incomplete.add('No rate from $currency to ${doc.baseCurrency} in the '
@@ -515,7 +518,7 @@ FinanceSnapshot buildSnapshot(
           balanceMinor: balances == null ? null : balances[account.id] ?? 0,
         ),
     ],
-    netWorthMinor: netWorth,
+    netWorthMinor: netWorth?.totalMinor,
     income: flows(cashFlow?.incomeByCategory),
     expense: flows(cashFlow?.expenseByCategory),
     totalIncomeMinor: totalIncome,

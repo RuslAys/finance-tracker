@@ -65,24 +65,44 @@ class DashboardScreen extends StatelessWidget {
       final theme = Theme.of(context);
       final base = controller.baseCurrency;
       final baseUnit = controller.minorUnit(base);
-      final netWorth = controller.netWorthMinor;
+      final netWorth = controller.netWorth;
       final flow = controller.cashFlow;
 
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
-            child: ListTile(
-              title: const Text('Net worth'),
-              subtitle: Text('Cash and positions in $base'),
-              trailing: Text(
-                // A missing rate or price makes the total unavailable; showing
-                // a number here would hide a position instead of reporting it.
-                netWorth == null
-                    ? 'Unavailable'
-                    : formatMinor(netWorth, base, baseUnit),
-                style: theme.textTheme.titleLarge,
-              ),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('Net worth'),
+                  subtitle: Text('Cash and positions in $base'),
+                  trailing: Text(
+                    // A missing rate or price makes the total unavailable;
+                    // showing a number here would hide a position instead of
+                    // reporting it.
+                    netWorth.totalMinor == null
+                        ? 'Unavailable'
+                        : formatMinor(netWorth.totalMinor!, base, baseUnit),
+                    style: theme.textTheme.titleLarge,
+                  ),
+                ),
+                // An unavailable total says what is missing rather than
+                // leaving the user to guess which price or rate to add.
+                for (final reason in netWorth.unavailable)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        reason,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (controller.financeError != null)
@@ -149,8 +169,8 @@ class DashboardScreen extends StatelessWidget {
               // far the user's own entry has got.
               'Valued on ${formatIsoDate(controller.asOf)}, computed at '
               '${controller.refreshedAt.toLocal().toString().substring(11, 16)}'
-              '.\n${controller.source.isEmpty ? 'Sample data. Pass '
-                    '--dart-define=tracker=<path> to open a workbook.' : 'Read '
+              '.\n${controller.source.isEmpty ? 'Sample data. Open a workbook '
+                    'to report your own.' : 'Read '
                     'only from ${controller.source}'}',
               textAlign: TextAlign.center,
             ),

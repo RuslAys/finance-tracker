@@ -48,6 +48,14 @@ List<ValidationError> validateTracker(TrackerDocument doc) {
       account.id,
       'Currency ${account.currency} has no currencies row',
     );
+    // An unknown type is reported rather than tolerated: it would otherwise
+    // drop out of every investment view as though the account held nothing.
+    check(
+      accountTypes.contains(account.type),
+      'accounts',
+      account.id,
+      'type "${account.type}" is not one of ${accountTypes.join(', ')}',
+    );
     final portfolioId = account.portfolioKey;
     if (portfolioId == null) continue;
     check(

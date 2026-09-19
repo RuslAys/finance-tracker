@@ -34,11 +34,28 @@ enum TradeSide { buy, sell }
 
 enum ImportStatus { pending, committed, failed, cancelled }
 
+/// The `accounts.type` values the canonical model accepts.
+///
+/// A closed set, because the alternative is silent: a misspelled `brokerage`
+/// would be excluded from every portfolio view, reporting the user's
+/// investments as an absence rather than as the typo it is.
+const Set<String> accountTypes = {
+  'checking',
+  'savings',
+  'cash',
+  'brokerage',
+  'crypto',
+};
+
 /// The `accounts.type` values that hold investments.
 ///
 /// Portfolio grouping reads this rather than the trades an account happens to
 /// have: a brokerage account holding only cash is still an investment account,
 /// and must appear in a portfolio rather than vanish from the summary.
+///
+/// `crypto` is not one of them: a crypto balance arrives as a holdings snapshot
+/// with no trade history, so it has no FIFO book and must not be reported as a
+/// priced position.
 const Set<String> investmentAccountTypes = {'brokerage'};
 
 class Account {

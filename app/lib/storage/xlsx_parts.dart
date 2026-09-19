@@ -8,6 +8,8 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
@@ -33,6 +35,56 @@ class WorkbookFormatException implements Exception {
   String toString() => 'WorkbookFormatException: $message';
 }
 
+/// What one workbook may cost to read, from
+/// `docs/flutter-architecture.md#large-workbooks`.
+///
+/// A ZIP states the uncompressed size of each part in its own directory, and a
+/// small archive is free to state a small one and then decompress without
+/// bound. Every byte limit here is therefore checked twice: once against the
+/// declaration, so an honest oversized part is refused before it is expanded,
+/// and once against the bytes actually produced, so a lying one is refused too.
+///
+/// Exceeding any limit rejects the load. Nothing here truncates: a workbook
+/// read short would be a tracker that is missing records and still reports
+/// balances, which is exactly the failure the limits exist to prevent.
+///
+/// The defaults are an Excel-shaped ceiling, not a target: a real tracker is
+/// orders of magnitude smaller. They are settable so a check can exercise a
+/// limit without building a gigabyte.
+class WorkbookLimits {
+  const WorkbookLimits({
+    this.compressedBytes = 256 * 1024 * 1024,
+    this.partBytes = 512 * 1024 * 1024,
+    this.totalBytes = 1024 * 1024 * 1024,
+    this.entries = 1024,
+    this.sharedStrings = 2000000,
+    this.cellTextLength = 32767,
+    this.rowsPerSheet = 1048576,
+  });
+
+  /// Size of the container itself, before anything is decompressed.
+  final int compressedBytes;
+
+  /// Decompressed size of one part, and of every part added together.
+  final int partBytes;
+  final int totalBytes;
+
+  /// Files the archive's directory has room for, read from the container
+  /// before it is decoded and rounded up in the archive's favour. Set it well
+  /// above the parts a workbook needs.
+  final int entries;
+
+  /// Entries in the shared-string table, which one sheet may reference many
+  /// times over and which is held whole while the sheets are read.
+  final int sharedStrings;
+
+  /// Characters of one string, shared or inline. Excel's own cell limit.
+  final int cellTextLength;
+
+  /// `<row>` elements of one sheet. Excel's own sheet limit.
+  final int rowsPerSheet;
+}
+
 /// One workbook's tabs, each a list of rows of cells.
 class WorkbookParts {
   WorkbookParts(this.sheets);
@@ -50,14 +102,65 @@ class WorkbookParts {
 
   /// Parses the parts this reader needs: the workbook, its relationships,
   /// shared strings, number formats, and every sheet.
-  factory WorkbookParts.decode(List<int> bytes) =>
-      WorkbookParts.decodeStream(InputMemoryStream(bytes));
+  factory WorkbookParts.decode(
+    List<int> bytes, {
+    WorkbookLimits limits = const WorkbookLimits(),
+  }) => WorkbookParts.decodeStream(InputMemoryStream(bytes), limits: limits);
 
   /// Reads the container from [input], which the caller closes.
   ///
   /// A caller holding a file passes an `InputFileStream` so that the compressed
   /// workbook is read from disk as it is needed rather than held whole.
-  factory WorkbookParts.decodeStream(InputStream input) {
+  factory WorkbookParts.decodeStream(
+    InputStream input, {
+    WorkbookLimits limits = const WorkbookLimits(),
+  }) {
+    // Read before anything seeks: an archive stream's `length` is the bytes it
+    // has left, so this is the container's size only while it sits at the start.
+    final total = input.length;
+    _within(
+      total,
+      limits.compressedBytes,
+      'Workbook is larger than the ${limits.compressedBytes} byte limit',
+    );
+
+    // A zip states its directory in the last 64 KiB of the file. Without one
+    // there is nothing to bound, and nothing to read either.
+    final capacity = _directoryCapacity(input, total);
+    if (capacity == null) {
+      throw WorkbookFormatException(
+        'Not a readable .xlsx container: it ends with no zip directory record',
+      );
+    }
+    _within(
+      capacity,
+      limits.entries,
+      'Workbook directory has room for $capacity files, more than the '
+          '${limits.entries} allowed',
+    );
+
+    // The directory is read here rather than left to the decoder, because the
+    // decoder expands the payload of every entry a Unix writer marked as a
+    // symbolic link while it is still building the archive — before any byte
+    // limit below can see it. Reading the directory first is what makes those
+    // entries refusable. It costs a second parse of records the decoder parses
+    // again; the capacity above is what keeps that bounded.
+    final directory = ZipDirectory();
+    try {
+      directory.read(input);
+    } catch (error) {
+      throw WorkbookFormatException('Not a readable .xlsx container: $error');
+    }
+    for (final header in directory.fileHeaders) {
+      if (_isSymbolicLink(header)) {
+        throw WorkbookFormatException(
+          'Workbook entry "${header.filename}" is a symbolic link; a workbook '
+          'part is a file',
+        );
+      }
+    }
+    input.setPosition(0);
+
     final Archive archive;
     try {
       archive = ZipDecoder().decodeStream(input);
@@ -65,15 +168,28 @@ class WorkbookParts {
       throw WorkbookFormatException('Not a readable .xlsx container: $error');
     }
 
+    var totalBytes = 0;
+
     /// The decompressed text of a part, dropped from the archive's cache once
     /// read: the parts are large enough that keeping every one of them for the
     /// length of the load is most of the peak memory.
     String? text(String name) {
       final file = archive.findFile(name);
-      final bytes = file?.readBytes();
+      if (file == null) return null;
+      // ponytail: a part whose declared size lies is expanded once before its
+      // real length is refused below. Bounding that too means decompressing
+      // through a counting sink; do it if a measurement asks for it.
+      _within(file.size, limits.partBytes, '$name declares more than the '
+          '${limits.partBytes} byte limit');
+      final bytes = file.readBytes();
       if (bytes == null) return null;
+      _within(bytes.length, limits.partBytes,
+          '$name is larger than the ${limits.partBytes} byte limit');
+      totalBytes += bytes.length;
+      _within(totalBytes, limits.totalBytes, 'Workbook decompresses to more '
+          'than the ${limits.totalBytes} byte limit');
       final decoded = utf8.decode(bytes);
-      file!.clear();
+      file.clear();
       return decoded;
     }
 
@@ -120,14 +236,18 @@ class WorkbookParts {
       if (id != null && target != null) targets[id] = target;
     }
 
-    final strings = [
-      for (final item in _subtrees(
-        'xl/sharedStrings.xml',
-        text('xl/sharedStrings.xml'),
-        'si',
-      ))
-        _all(item, 't').map((t) => t.innerText).join(),
-    ];
+    final strings = <String>[];
+    for (final item in _subtrees(
+      'xl/sharedStrings.xml',
+      text('xl/sharedStrings.xml'),
+      'si',
+    )) {
+      _within(strings.length + 1, limits.sharedStrings, 'Workbook holds more '
+          'than the ${limits.sharedStrings} shared strings allowed');
+      strings.add(
+        _limited(_all(item, 't').map((t) => t.innerText).join(), limits),
+      );
+    }
     final dateStyles = _dateStyles(part('xl/styles.xml'));
 
     final sheets = <String, List<List<Cell>>>{};
@@ -153,9 +273,159 @@ class WorkbookParts {
       if (content == null) {
         throw WorkbookFormatException('Sheet "$name" is missing its $path part');
       }
-      sheets[name] = _rows(path, content, strings, dateStyles, date1904);
+      sheets[name] = _rows(path, content, strings, dateStyles, date1904, limits);
     }
     return WorkbookParts(sheets);
+  }
+
+  /// Refuses the load when [value] is over [limit].
+  static void _within(int value, int limit, String message) {
+    if (value > limit) throw WorkbookFormatException(message);
+  }
+
+  /// Whether the decoder would expand this entry to read a link target.
+  ///
+  /// These are the two fields it tests: a creator version of 3 in the high
+  /// byte, which is how a Unix writer signs a record, and a link file type in
+  /// the mode the external attributes carry. An entry answering both is
+  /// decompressed whole during the decode, whatever its size, so a container
+  /// may mark every one of its entries this way and point each at the same
+  /// payload. No part of a workbook is a link, so the container is refused.
+  static bool _isSymbolicLink(ZipFileHeader header) =>
+      (header.versionMadeBy >> 8) == 3 &&
+      ((header.externalFileAttributes >> 16) & 0xf000) == 0xa000;
+
+  /// The most entries this container's directory can hold, or null when it
+  /// ends with no directory record at all.
+  ///
+  /// Read before the decode, because the decode is what costs. `ZipDecoder`
+  /// parses and retains a record for every central-directory entry, reads each
+  /// one's local header, and copies each one's extra field, all before it
+  /// returns anything — and it then collapses repeated filenames, so a
+  /// directory of millions of entries under one name arrives as an archive of
+  /// one file. Counting the decoded archive bounds neither the work nor the
+  /// memory; only the directory does, and only ahead of time.
+  ///
+  /// A central-directory record is [_centralHeaderBytes] before its name, so
+  /// the declared directory size is the ceiling on the records that fit in it,
+  /// and the decoder reads neither past that size nor past the container, so a
+  /// lying declaration bounds it as a truthful one does. The ceiling is
+  /// conservative by roughly half, because a real record also carries a name:
+  /// an archive is refused when its directory is merely large enough to hold
+  /// more entries than are allowed, which is why the limit is set well above
+  /// what a tracker workbook needs.
+  ///
+  /// [total] is the container's size, which the caller reads before the stream
+  /// has moved: an archive stream reports the bytes left, not the bytes it has,
+  /// so its `length` is not the file's once this has seeked. The position is
+  /// left back at the start, where the decoder expects it.
+  static int? _directoryCapacity(InputStream input, int total) {
+    if (total < _eocdBytes) return null;
+    try {
+      // The record is within 64 KiB of the end — the furthest a comment can
+      // push it — so the tail is read once and scanned in memory rather than
+      // seeked over a byte at a time.
+      final window = math.min(total, _eocdBytes + _maxCommentBytes);
+      input.setPosition(total - window);
+      final tail = ByteData.sublistView(input.readBytes(window).toUint8List());
+
+      int? capacity;
+      // Every candidate counts, not only the last one. The decoder runs its own
+      // backward scan in 1 KiB chunks, and the three bytes straddling each
+      // boundary fall in no chunk, so the record it settles on is not always
+      // the one a single pass finds. The ceiling covers whichever it reaches,
+      // which is why this scan runs to the last four bytes of the container
+      // rather than to the last whole record.
+      for (var at = window - 4; at >= 0; at--) {
+        if (tail.getUint32(at, Endian.little) != _eocdSignature) continue;
+        // A signature with no room for the rest of its record. The decoder's
+        // own scan reads to within eight bytes of the end and its file stream
+        // returns zeros past it, so it can settle on a record like this and
+        // take a directory size from fields that run off the file, with an
+        // offset the missing bytes zero out. Nothing observable bounds what it
+        // would then parse, so the container is refused rather than measured.
+        if (window - at < _eocdBytes) {
+          throw WorkbookFormatException(
+            'Not a readable .xlsx container: it ends inside a zip directory '
+            'record',
+          );
+        }
+        final zip64 = _zip64Directory(input, total - window + at, total);
+        final size = zip64?.size ?? tail.getUint32(at + 12, Endian.little);
+        final offset = zip64?.offset ?? tail.getUint32(at + 16, Endian.little);
+        // However large the declaration, the decoder parses no further than the
+        // container holds: it reads the directory as a subset, which a memory
+        // stream clamps to the buffer and a file stream ends with zero bytes
+        // that match no record signature.
+        final reachable = math.min(size, math.max(0, total - offset));
+        capacity = math.max(capacity ?? 0, reachable ~/ _centralHeaderBytes);
+      }
+      return capacity;
+    } finally {
+      input.setPosition(0);
+    }
+  }
+
+  /// The directory the ZIP64 records name, or null when the 32-bit fields of
+  /// the End of Central Directory record at [eocd] stand.
+  ///
+  /// This mirrors the decoder rather than the specification. `ZipDirectory`
+  /// follows a ZIP64 locator whenever one sits immediately before the record,
+  /// and replaces the size and offset it read with what it finds there —
+  /// whether or not the 32-bit fields held the sentinel that is supposed to
+  /// announce them. Reading ZIP64 only for the sentinel would let a container
+  /// declare a small directory here and hand the decoder a huge one.
+  static ({int size, int offset})? _zip64Directory(
+    InputStream input,
+    int eocd,
+    int total,
+  ) {
+    if (eocd < _zip64LocatorBytes) return null;
+    input.setPosition(eocd - _zip64LocatorBytes);
+    if (input.readUint32() != _zip64LocatorSignature) return null;
+    input.readUint32();
+    final record = input.readUint64();
+    // Past the end, or past what an integer holds: the decoder finds no
+    // signature there either, and keeps its 32-bit fields, so this does too.
+    if (record < 0 || record + _zip64EocdBytes > total) return null;
+    input.setPosition(record);
+    if (input.readUint32() != _zip64EocdSignature) return null;
+    // Signature, record size, versions, disk numbers, and both entry counts.
+    input.setPosition(record + 40);
+    final size = input.readUint64();
+    final offset = input.readUint64();
+    // A value past the signed range is past the container, so it is clamped to
+    // the container: unreadably large either way, and never negative.
+    return (
+      size: size < 0 ? total : size,
+      offset: offset < 0 ? 0 : offset,
+    );
+  }
+
+  /// Fixed part of an End of Central Directory record, before its comment.
+  static const int _eocdBytes = 22;
+
+  /// The longest comment that record's 16-bit length field can describe.
+  static const int _maxCommentBytes = 0xffff;
+
+  /// Fixed part of a central-directory record, before its name.
+  static const int _centralHeaderBytes = 46;
+
+  static const int _zip64LocatorBytes = 20;
+
+  /// Fixed part of a ZIP64 End of Central Directory record, through the
+  /// directory offset this reader needs.
+  static const int _zip64EocdBytes = 56;
+
+  static const int _eocdSignature = 0x06054b50;
+  static const int _zip64LocatorSignature = 0x07064b50;
+  static const int _zip64EocdSignature = 0x06064b50;
+
+  /// Text no longer than one cell may hold, shared or inline.
+  static String _limited(String text, WorkbookLimits limits) {
+    _within(text.length, limits.cellTextLength, 'A string of ${text.length} '
+        'characters is longer than the ${limits.cellTextLength} allowed');
+    return text;
   }
 
   /// Descendants of [node] by local name.
@@ -271,9 +541,12 @@ class WorkbookParts {
     List<String> strings,
     Set<int> dateStyles,
     bool date1904,
+    WorkbookLimits limits,
   ) {
     final rows = <List<Cell>>[];
     for (final row in _subtrees(part, xml, 'row')) {
+      _within(rows.length + 1, limits.rowsPerSheet, '$part holds more than the '
+          '${limits.rowsPerSheet} rows allowed');
       final cells = <Cell>[];
       for (final cell in _children(row, 'c')) {
         final column = _columnOf(cell.getAttribute('r'));
@@ -281,7 +554,9 @@ class WorkbookParts {
         while (column != null && cells.length < column) {
           cells.add(blankCell);
         }
-        cells.add(_cell(cell, strings, dateStyles, date1904));
+        final value = _cell(cell, strings, dateStyles, date1904);
+        _limited(value.text, limits);
+        cells.add(value);
       }
       rows.add(cells);
     }

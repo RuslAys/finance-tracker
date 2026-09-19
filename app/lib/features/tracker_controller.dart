@@ -12,15 +12,39 @@ import '../domain/fx.dart';
 import '../domain/models.dart';
 import '../domain/schema.dart';
 
+/// Explicit provider choices, from
+/// `--dart-define=price_provider=stooq --dart-define=rate_provider=ecb`.
+const String priceProviderOverride = String.fromEnvironment('price_provider');
+const String rateProviderOverride = String.fromEnvironment('rate_provider');
+
+/// The provider a workbook's observations are read from.
+///
+/// A report never mixes providers, and the app must not pick one for the user:
+/// with several in the file and none selected, nothing is reported until the
+/// user names one. A workbook holding a single provider is unambiguous, so it
+/// needs no flag.
+String providerOf(String selected, Set<String> present, String define) {
+  if (selected.isNotEmpty) return selected;
+  if (present.length <= 1) return present.firstOrNull ?? '';
+  throw StateError(
+    'Workbook holds observations from ${(present.toList()..sort()).join(', ')}. '
+    'Pass --dart-define=$define=<provider> to choose one; mixing them is not '
+    'permitted.',
+  );
+}
+
 class TrackerController extends ChangeNotifier {
   TrackerController(
     TrackerDocument document, {
-    this.priceProvider = 'demo',
-    this.rateProvider = 'demo',
-    this.source = '',
+    String priceProvider = 'demo',
+    String rateProvider = 'demo',
+    String source = '',
     DateTime? asOf,
     DateTime? period,
   }) : _document = document,
+       _priceProvider = priceProvider,
+       _rateProvider = rateProvider,
+       _source = source,
        asOf = asOf ?? todayUtc(),
        _periodStart = monthStart(period ?? asOf ?? todayUtc()) {
     _recompute();
@@ -29,12 +53,18 @@ class TrackerController extends ChangeNotifier {
   /// The valuation date: balances, positions, prices and rates all resolve on
   /// or before it, so every number on screen describes the same moment.
   final DateTime asOf;
-  final String priceProvider;
-  final String rateProvider;
+
+  String _priceProvider;
+  String _rateProvider;
+  String _source;
+
+  String get priceProvider => _priceProvider;
+
+  String get rateProvider => _rateProvider;
 
   /// Workbook this document was read from; empty for the synthetic sample.
   /// The adapter is read-only, so nothing is ever written back to it.
-  final String source;
+  String get source => _source;
 
   DateTime _periodStart;
 
@@ -67,7 +97,11 @@ class TrackerController extends ChangeNotifier {
   late Map<String, Minor> balances;
   late CashFlow cashFlow;
   late List<Holding> holdings;
-  late Minor? netWorthMinor;
+
+  /// The tracker-wide total and, when it is missing, the named reasons.
+  late NetWorth netWorth;
+
+  Minor? get netWorthMinor => netWorth.totalMinor;
 
   /// Named portfolios, then Unassigned. Empty when the tracker has no
   /// investment accounts.
@@ -93,7 +127,28 @@ class TrackerController extends ChangeNotifier {
   /// instead of a wrong number.
   late String? financeError;
 
-  void open(TrackerDocument document) {
+  /// Opens [document] in place of the one showing, from [source].
+  ///
+  /// The providers are resolved from the new document rather than kept: a
+  /// workbook's observations name their own provider, and reading a new file
+  /// against the last one's would report every position as unpriced. An
+  /// explicit `--dart-define` choice still wins, and an ambiguous workbook
+  /// throws rather than picking one — the caller shows that to the user and
+  /// leaves the open tracker alone.
+  void open(TrackerDocument document, {String source = ''}) {
+    final priceProvider = providerOf(
+      priceProviderOverride,
+      {for (final price in document.prices) price.provider},
+      'price_provider',
+    );
+    final rateProvider = providerOf(
+      rateProviderOverride,
+      {for (final rate in document.fxRates) rate.provider},
+      'rate_provider',
+    );
+    _priceProvider = priceProvider;
+    _rateProvider = rateProvider;
+    _source = source;
     _document = document;
     _recompute();
     notifyListeners();
@@ -119,7 +174,7 @@ class TrackerController extends ChangeNotifier {
     balances = const {};
     cashFlow = const CashFlow({}, {});
     holdings = const [];
-    netWorthMinor = null;
+    netWorth = _emptyNetWorth();
     portfolioReport = _emptyPortfolioReport();
     financeError = null;
 
@@ -137,7 +192,7 @@ class TrackerController extends ChangeNotifier {
         fx: _fx,
       );
       holdings = FinanceEngine.holdings(_document, asOf: asOf);
-      netWorthMinor = FinanceEngine.netWorth(
+      netWorth = FinanceEngine.netWorth(
         _document,
         priceProvider: priceProvider,
         rateProvider: rateProvider,
@@ -147,8 +202,9 @@ class TrackerController extends ChangeNotifier {
       balances = const {};
       cashFlow = const CashFlow({}, {});
       holdings = const [];
-      netWorthMinor = null;
-      financeError = error is FinanceError ? error.message : '$error';
+      final message = error is FinanceError ? error.message : '$error';
+      netWorth = _emptyNetWorth(message);
+      financeError = message;
     }
 
     // Computed apart from the totals above: the selected portfolio reads only
@@ -178,6 +234,13 @@ class TrackerController extends ChangeNotifier {
     for (final group in portfolioGroups)
       if (_portfolioId == null || group.id == _portfolioId) ...group.accountIds,
   ];
+
+  NetWorth _emptyNetWorth([String reason = 'No calculated results']) =>
+      NetWorth(
+        currency: _document.baseCurrency,
+        totalMinor: null,
+        unavailable: [reason],
+      );
 
   PortfolioReport _emptyPortfolioReport([
     String reason = 'No calculated results',

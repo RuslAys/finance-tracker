@@ -8,7 +8,7 @@ Client-first means Flutter owns finance calculations, validation, and practical 
 
 ## Current state
 
-Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, a read-only local `.xlsx` reader, and read-only named investment portfolios with their combined summary. Editing portfolio membership, configurable widgets, custom source mappings, workbook writing, cloud spreadsheet providers, editing, bank imports, market-data providers, the user profile, the config bundle, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
+Implemented: the canonical finance model, validation, exact arithmetic, balances, monthly cash flow in one reporting currency, FIFO holdings, currency conversion, historical valuation through an as-of date, a read-only UI, a read-only local `.xlsx` reader over a workbook the user picks, and read-only named investment portfolios with their combined summary. Editing portfolio membership, configurable widgets, custom source mappings, workbook writing, cloud spreadsheet providers, editing, bank imports, market-data providers, the user profile, the config bundle, household membership, goals, actions, monitoring, consolidation, and AI integrations are planned, not implemented.
 
 ## Investment portfolios
 
@@ -101,7 +101,7 @@ The order is deliberate: writes come first because the agent is useless without 
 1. Storage abstraction, the state directory, and journaled verified writes, starting with the local directory adapter.
 2. The LLM-independent domain tool layer: read, proposal, and analytics tools over the core.
 3. The first cloud provider (Google Sheets/Drive), enabling cloud mode on mobile and the only writable mode on web.
-4. Statement import adapters with mapping profiles, streamed previews, and idempotent re-import.
+4. Statement import converters for Revolut and Interactive Brokers, with streamed previews and idempotent re-import. A generic converter driven by mapping profiles is a later step, not part of this one.
 5. The LLM provider abstraction and the agent loop, with every applied patch journaled and reversible.
 6. BYOK market-data providers with keyless defaults and explicit refresh.
 7. The user profile (goal memory) in `profile.yaml`.

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:finance_tracker/domain/decimal.dart';
 import 'package:finance_tracker/domain/finance.dart';
 import 'package:finance_tracker/domain/models.dart';
@@ -6,6 +8,53 @@ import 'package:finance_tracker/storage/xlsx_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'xlsx_builder.dart';
+
+/// The same container with ZIP64 records inserted before its End of Central
+/// Directory record.
+///
+/// With [wholeFileIsDirectory] the ZIP64 records claim the container itself as
+/// the central directory — the shape of an archive whose directory holds one
+/// record per 46 bytes of file — while the 32-bit fields keep the writer's
+/// small, honest values. That is exactly what a reader consulting ZIP64 only
+/// for the `0xffffffff` sentinel never looks at, and what the decoder takes
+/// regardless. Otherwise the records restate the real directory.
+///
+/// The records go between the central directory and the trailing record, so
+/// every stored offset still points where it did.
+List<int> _withZip64Directory(
+  List<int> container, {
+  bool wholeFileIsDirectory = false,
+}) {
+  final zip = Uint8List.fromList(container);
+  // The builder writes no comment, so the record is the last 22 bytes.
+  final eocd = zip.length - 22;
+  final trailer = ByteData.sublistView(zip, eocd);
+  final zip64 = ByteData(56)
+    ..setUint32(0, 0x06064b50, Endian.little)
+    ..setUint64(4, 44, Endian.little)
+    ..setUint64(24, 1, Endian.little)
+    ..setUint64(32, 1, Endian.little)
+    ..setUint64(
+      40,
+      wholeFileIsDirectory ? zip.length : trailer.getUint32(12, Endian.little),
+      Endian.little,
+    )
+    ..setUint64(
+      48,
+      wholeFileIsDirectory ? 0 : trailer.getUint32(16, Endian.little),
+      Endian.little,
+    );
+  final locator = ByteData(20)
+    ..setUint32(0, 0x07064b50, Endian.little)
+    ..setUint64(8, eocd, Endian.little)
+    ..setUint32(16, 1, Endian.little);
+  return [
+    ...zip.sublist(0, eocd),
+    ...zip64.buffer.asUint8List(),
+    ...locator.buffer.asUint8List(),
+    ...zip.sublist(eocd),
+  ];
+}
 
 /// A small but complete canonical workbook: one funded position, one price, one
 /// rate. Cells are text except where a test needs another cell type.
@@ -512,5 +561,147 @@ void main() {
       () => readWorkbook([1, 2, 3, 4]),
       throwsA(isA<WorkbookFormatException>()),
     );
+  });
+
+  group('resource limits', () {
+    /// Exceeding a limit rejects the load. Nothing truncates: a workbook read
+    /// short would be a tracker missing records that still reports balances.
+    void refuses(String limit, WorkbookLimits limits) => expect(
+      () => readWorkbook(buildXlsx(_tabs()), limits: limits),
+      throwsA(isA<WorkbookFormatException>()),
+      reason: 'over the $limit limit',
+    );
+
+    test('refuse a workbook past any one of them', () {
+      refuses('compressed size', const WorkbookLimits(compressedBytes: 64));
+      refuses('archive entry', const WorkbookLimits(entries: 3));
+      refuses('part size', const WorkbookLimits(partBytes: 64));
+      refuses('decompressed total', const WorkbookLimits(totalBytes: 512));
+      refuses('shared string', const WorkbookLimits(sharedStrings: 1));
+      refuses('cell text', const WorkbookLimits(cellTextLength: 4));
+      refuses('sheet row', const WorkbookLimits(rowsPerSheet: 2));
+    });
+
+    test('count the container directory, not the decoded archive', () {
+      // The decoder parses and retains every directory record before it
+      // returns, then collapses repeated filenames — so a count taken from the
+      // archive it produced would read one file where the container declared
+      // millions, after the memory was already spent. The refusal has to come
+      // from the container, ahead of the decode, and this message is how the
+      // test tells the two apart.
+      expect(
+        () => readWorkbook(
+          buildXlsx(
+            _tabs(),
+            extraParts: {
+              for (var i = 0; i < 200; i++) 'xl/spare$i.xml': '<spare/>',
+            },
+          ),
+          limits: const WorkbookLimits(entries: 32),
+        ),
+        throwsA(
+          isA<WorkbookFormatException>().having(
+            (error) => error.message,
+            'message',
+            startsWith('Workbook directory has room for'),
+          ),
+        ),
+      );
+    });
+
+    test('follow the ZIP64 directory the container declares', () {
+      // The decoder takes its directory from the ZIP64 records whenever a
+      // locator sits before the End of Central Directory record, replacing the
+      // 32-bit fields whether or not they held the sentinel that announces
+      // them. A container may therefore declare a small directory in the
+      // 32-bit field and hand the decoder a huge one.
+      // 64 is above what this workbook's own directory has room for and below
+      // what the ZIP64 records claim, so only the claim can refuse it.
+      const limits = WorkbookLimits(entries: 64);
+      expect(readWorkbook(buildXlsx(_tabs()), limits: limits).trackerId,
+          'trk-1');
+      expect(
+        () => readWorkbook(
+          _withZip64Directory(buildXlsx(_tabs()), wholeFileIsDirectory: true),
+          limits: limits,
+        ),
+        throwsA(
+          isA<WorkbookFormatException>().having(
+            (error) => error.message,
+            'message',
+            startsWith('Workbook directory has room for'),
+          ),
+        ),
+      );
+      // The same surgery restating the real directory still reads, so the
+      // refusal above is the claim and not the rewritten tail.
+      expect(
+        readWorkbook(_withZip64Directory(buildXlsx(_tabs())), limits: limits)
+            .trackerId,
+        'trk-1',
+      );
+    });
+
+    test('refuse an entry marked as a symbolic link', () {
+      // The decoder decompresses a Unix link entry whole, to read its target,
+      // while it is building the archive — before any byte limit can see it.
+      // Marking the first entry is enough to prove the refusal happens; a
+      // container attacking this marks every entry and points each at one
+      // bomb.
+      final zip = Uint8List.fromList(buildXlsx(_tabs()));
+      final eocd = ByteData.sublistView(zip, zip.length - 22);
+      final record = eocd.getUint32(16, Endian.little);
+      ByteData.sublistView(zip, record)
+        // Creator version 3 is how a Unix writer signs a record.
+        ..setUint16(4, 0x0314, Endian.little)
+        // File type 0xa000 in the mode the external attributes carry.
+        ..setUint32(38, 0xa1ff0000, Endian.little);
+      expect(
+        () => readWorkbook(zip),
+        throwsA(
+          isA<WorkbookFormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('is a symbolic link'),
+          ),
+        ),
+      );
+    });
+
+    test('refuse a directory record the container ends inside of', () {
+      // 18 bytes: the signature, a huge directory size, and an offset whose
+      // top half is off the end of the file. The decoder's scan reaches this
+      // far and its file stream reads the missing bytes as zeros, so it can
+      // select this record and parse a directory of whatever size it names,
+      // from wherever the surviving offset bytes point.
+      final trailing = ByteData(18)
+        ..setUint32(0, 0x06054b50, Endian.little)
+        ..setUint32(12, 0x7fffffff, Endian.little);
+      expect(
+        () => readWorkbook([
+          ...buildXlsx(_tabs()),
+          ...trailing.buffer.asUint8List(),
+        ]),
+        throwsA(
+          isA<WorkbookFormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('ends inside a zip directory record'),
+          ),
+        ),
+      );
+    });
+
+    test('refuse a container that ends with no directory record', () {
+      final truncated = buildXlsx(_tabs());
+      expect(
+        () => readWorkbook(truncated.sublist(0, truncated.length - 22)),
+        throwsA(isA<WorkbookFormatException>()),
+      );
+    });
+
+    test('leave an ordinary workbook readable', () {
+      expect(readWorkbook(buildXlsx(_tabs())).trackerId, 'trk-1');
+    });
   });
 }

@@ -41,7 +41,7 @@ void main() {
         priceProvider: sampleProvider,
         rateProvider: sampleProvider,
         asOf: today,
-      ),
+      ).totalMinor,
     );
     expect(snapshot.isComplete, isTrue);
 

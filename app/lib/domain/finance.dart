@@ -159,6 +159,33 @@ class PortfolioReport {
   }
 }
 
+/// What the whole tracker is worth on a valuation date, or why it is not known.
+///
+/// The same shape as [PortfolioReport], and for the same reason: a bare `null`
+/// tells a screen that the total is missing but never what is missing, so the
+/// user is left to guess which price or rate to add. `docs/architecture.md`
+/// requires naming it.
+class NetWorth {
+  const NetWorth({
+    required this.currency,
+    required this.totalMinor,
+    required this.unavailable,
+  });
+
+  /// The tracker's base currency, which every term is converted to.
+  final String currency;
+
+  /// Cash balances plus priced positions, or `null` when any reason below
+  /// stands. Never a partial total: one short by a position reads as a real
+  /// net worth.
+  final Minor? totalMinor;
+
+  /// Why the total is missing, in the words a screen can show.
+  final List<String> unavailable;
+
+  bool get isComplete => unavailable.isEmpty;
+}
+
 class _Lot {
   _Lot(this.units, this.costMinor);
 
@@ -771,20 +798,30 @@ class FinanceEngine {
   /// derived from the trade, so the two terms do not overlap. A tracker that
   /// omits those rows overstates this total; see `docs/spreadsheet-format.md`.
   ///
-  /// Returns `null` as soon as one rate or price is missing, or a movement is
-  /// only half recorded on [asOf]: a total that silently dropped a position,
-  /// counted its cash twice, or lost money in transit between two accounts
-  /// would read as a real net worth.
-  static Minor? netWorth(
+  /// The total is withheld as soon as one rate or price is missing, or a
+  /// movement is only half recorded on [asOf]: a total that silently dropped a
+  /// position, counted its cash twice, or lost money in transit between two
+  /// accounts would read as a real net worth.
+  ///
+  /// Every cause is collected rather than the first, so a user adding what is
+  /// missing sees the whole list at once.
+  static NetWorth netWorth(
     TrackerDocument doc, {
     required String priceProvider,
     required String rateProvider,
     required DateTime asOf,
   }) {
-    if (!_movementsAreComplete(doc, asOf)) return null;
+    final unavailable = <String>[];
+    if (!_movementsAreComplete(doc, asOf)) {
+      unavailable.add(
+        'A trade or transfer is only half recorded on ${formatIsoDate(asOf)}',
+      );
+    }
 
     final fx = FxConverter(doc, provider: rateProvider);
     var total = 0;
+    final unconverted = <String>{};
+    final unpriced = <String>{};
 
     Minor? toBase(Minor amount, String currency) => fx.convertMinor(
       amount,
@@ -795,9 +832,15 @@ class FinanceEngine {
 
     for (final entry in accountBalances(doc, asOf: asOf).entries) {
       final currency = doc.accounts[entry.key]?.currency;
-      if (currency == null) return null;
+      if (currency == null) {
+        unavailable.add('Unknown account ${entry.key}');
+        continue;
+      }
       final converted = toBase(entry.value, currency);
-      if (converted == null) return null;
+      if (converted == null) {
+        unconverted.add(currency);
+        continue;
+      }
       total = addMinor(total, converted);
     }
     for (final holding in holdings(doc, asOf: asOf)) {
@@ -807,12 +850,34 @@ class FinanceEngine {
         provider: priceProvider,
         asOf: asOf,
       );
-      if (value == null) return null;
+      if (value == null) {
+        unpriced.add(holding.instrumentId);
+        continue;
+      }
       final converted = toBase(value.amount, value.currency);
-      if (converted == null) return null;
+      if (converted == null) {
+        unconverted.add(value.currency);
+        continue;
+      }
       total = addMinor(total, converted);
     }
-    return total;
+
+    if (unpriced.isNotEmpty) {
+      unavailable.add(
+        'No price for ${_list(unpriced)} on ${formatIsoDate(asOf)}',
+      );
+    }
+    for (final missing in unconverted.toList()..sort()) {
+      unavailable.add(
+        'No rate from $missing to ${doc.baseCurrency} on '
+        '${formatIsoDate(asOf)}',
+      );
+    }
+    return NetWorth(
+      currency: doc.baseCurrency,
+      totalMinor: unavailable.isEmpty ? total : null,
+      unavailable: unavailable,
+    );
   }
 
   /// Whether every movement recorded in more than one row has all of its rows

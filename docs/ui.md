@@ -2,7 +2,7 @@
 
 ## Product experience
 
-The implemented UI contains read-only Dashboard, Transactions, and Assets over a canonical local workbook or synthetic data, with portfolio selection on Assets. Portfolio editing, widget configuration, mapping setup, personal goals, and the optional family experience below are planned; follow the [product delivery order](product.md#delivery-order). Individual users can track finances, goals, and actions without household setup or a member picker.
+The implemented UI contains read-only Dashboard, Transactions, and Assets over a canonical local workbook or synthetic data, with portfolio selection on Assets. An Open workbook action selects the file — through `file_selector` on every platform, reading bytes on web and the path elsewhere; a file that cannot be read exactly, or one whose observations name several providers, is reported and leaves the open tracker unchanged. The Dashboard names every cause of an unavailable net worth, as Assets already does for a portfolio. Portfolio editing, widget configuration, mapping setup, personal goals, and the optional family experience below are planned; follow the [product delivery order](product.md#delivery-order). Individual users can track finances, goals, and actions without household setup or a member picker.
 
 The home screen answers three questions:
 

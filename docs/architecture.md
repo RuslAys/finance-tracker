@@ -4,7 +4,7 @@
 
 The client-first financial helper supports individual use with optional family features. Flutter owns finance rules, import validation, personal and household reports, goal progress, and deterministic budgeting suggestions. User data is not stored in a product-operated database. See [product rules and delivery order](product.md).
 
-The finance domain, read-only UI, canonical local `.xlsx` reader, and read-only named portfolios are implemented. Verified writes, cloud providers, the domain tool layer, imports, the agent, market data, the user profile, and the config bundle below are planned work in the [delivery order](product.md#delivery-order).
+The finance domain, read-only UI, canonical local `.xlsx` reader with its resource limits, user file selection, and read-only named portfolios are implemented. Verified writes, cloud providers, the domain tool layer, imports, the agent, market data, the user profile, and the config bundle below are planned work in the [delivery order](product.md#delivery-order).
 
 ## Components
 
@@ -24,6 +24,8 @@ Flutter application
 A tracker lives in a state directory — the same layout on a local folder and a cloud provider folder: the canonical spreadsheet (single source of truth — a local `.xlsx` workbook, or the cloud provider's native spreadsheet document addressed by its document ID and revision, never an `.xlsx` mirror beside it), `profile.yaml`, `config/` (provider config and mapping profiles, `key_ref` references only), `imports/inbox/` and `imports/processed/`, rotated `backups/`, and a write-intent `journal/`. The [spreadsheet format](spreadsheet-format.md#state-directory) fixes this layout; the same document remains the precise workbook contract.
 
 Adapters declare capabilities: `canWrite`, `atomicWrite`, `survivesCrash`, `persistentAccess: guaranteed | revocable`, `streamingRead`, and their revision model. Features gate on capabilities, never on scattered platform conditionals. The web client never writes local files — a local file on web is a read-only snapshot, and a cloud document is the only writable source in a browser. User-facing wording: "the browser cannot safely save changes to a file on your disk — connect a cloud provider or use the desktop app."
+
+A workbook the user picks in the file selector is `persistentAccess: revocable` on every platform: the selection grants access to that file now, not a permission a later session may assume. Reopening asks again rather than storing a path and failing quietly once the grant is gone.
 
 Every write runs a journaled cycle: record intent in durable storage → snapshot to `backups/` → apply → verify by read-back → commit or roll back. A killed browser tab or mobile process is a normal case, not an exception: the next open checks the pending intent against the source revision and recovers. Mobile local mode lives in the app sandbox; user-chosen external directories are supported but declared `revocable`, with graceful re-authorization that never loses state.
 
@@ -64,11 +66,11 @@ The app validates a proposed migration, previews affected rows and parsing failu
 
 ## Statement imports
 
-Pipeline: a file arrives in `imports/inbox/` — on desktop by folder or picker, on mobile via the share sheet (iOS Share Extension / Android intent-filter for CSV/XLSX/XML) or an in-app picker → a mapping profile is selected or auto-detected → streamed parsing (a contract requirement: previews are paged, never whole-file-in-memory) → a normalized-record preview with actionable errors → confirmation → journaled write → the original moves to `processed/`, and the batch is recorded in the `imports` tab.
+Pipeline: a file arrives in `imports/inbox/` — on desktop by folder or picker, on mobile via the share sheet (iOS Share Extension / Android intent-filter for CSV/XLSX/XML) or an in-app picker → its source converter is selected or detected from the format → streamed parsing (a contract requirement: previews are paged, never whole-file-in-memory) → a normalized-record preview with actionable errors → confirmation → journaled write → the original moves to `processed/`, and the batch is recorded in the `imports` tab.
 
 Rules: deduplicate by the bank identity defined in the [spreadsheet format](spreadsheet-format.md); re-importing the same file is idempotent; broker adapters create both the trade and its linked settlement transaction, or mark the settlement incomplete.
 
-First formats: generic CSV/XLSX via mapping profiles (covers most banks), Interactive Brokers Flex Query XML, Trading212 and Revolut CSV. Mapping profiles are plain YAML in `config/mappings/`; the agent can later draft them from a sample statement, always via preview and confirmation.
+Converters: Interactive Brokers Flex Query XML and Revolut CSV, and no others. Both are deterministic adapters written against the real format. A generic CSV/XLSX converter driven by mapping profiles is deferred until those two have established what the profile contract must carry; when it arrives, mapping profiles are plain YAML in `config/mappings/`, and the agent may draft them from a sample statement, always via preview and confirmation.
 
 ## LLM providers and the agent
 

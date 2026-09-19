@@ -2,7 +2,7 @@
 
 An open-source, client-first financial helper for mobile, desktop, and web: understand your finances, plan goals, and choose practical next steps using spreadsheets you control — a local `.xlsx` workbook or a cloud spreadsheet. Optional family features support shared accounts and goals.
 
-Implemented: the Flutter finance domain, validation, deterministic calculations, a read-only local `.xlsx` reader, read-only investment portfolios, and a read-only Material 3 UI. Portfolio editing, configurable widgets, custom spreadsheet mappings, writing/editing, imports, household features, goals, monitoring, and AI integrations are planned.
+Implemented: the Flutter finance domain, validation, deterministic calculations, a read-only local `.xlsx` reader, opening a workbook the user picks, read-only investment portfolios, and a read-only Material 3 UI. Portfolio editing, configurable widgets, custom spreadsheet mappings, writing/editing, imports, household features, goals, monitoring, and AI integrations are planned.
 
 ## AI-generated project
 
@@ -29,7 +29,9 @@ This project is developed with AI assistance. Documentation, code, tests, and pu
 
 ## Status
 
-`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, the balance, cash-flow, and FIFO holdings calculations, and exact cross-currency conversion with instrument market value. `app/lib/features/` holds `TrackerController` and the dashboard, transactions, and assets screens. `app/lib/storage/xlsx_store.dart` reads a canonical `.xlsx` tracker; run with `flutter run --dart-define=tracker=<path>` to open one, or without it for a synthetic sample document. Add `--dart-define=price_provider=<name>` and `--dart-define=rate_provider=<name>` when the workbook holds observations from more than one provider; reports never mix them. Nothing writes to a workbook yet. Tests live in `app/test/`; run them with `flutter test` from `app/`.
+`app/lib/domain/` holds the canonical model, schema validation, exact decimal arithmetic, the balance, cash-flow, and FIFO holdings calculations, and exact cross-currency conversion with instrument market value. `app/lib/features/` holds `TrackerController` and the dashboard, transactions, and assets screens. `app/lib/storage/xlsx_store.dart` reads a canonical `.xlsx` tracker, under the resource limits in `WorkbookLimits`; open one from the app's Open workbook action, or start with `flutter run --dart-define=tracker=<path>` to open it immediately, or without either for a synthetic sample document. Add `--dart-define=price_provider=<name>` and `--dart-define=rate_provider=<name>` when the workbook holds observations from more than one provider; reports never mix them. Nothing writes to a workbook yet.
+
+`app/` holds `lib/` and `test/` only. Run `flutter test` and `flutter analyze` from `app/` as it stands; running the app needs `flutter create .` there first, to generate the platform runner directories this repository does not carry.
 
 ## License
 

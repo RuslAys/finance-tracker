@@ -51,6 +51,8 @@ Every currency used by `_meta.base_currency`, an account, transaction, trade, in
 
 `id, name, type, currency, archived, portfolio_id`
 
+`type` is one of `checking | savings | cash | brokerage | crypto` — a closed set, because the alternative is silent: a misspelled `brokerage` would drop out of every portfolio view and report the user's investments as an absence rather than as the typo it is. Only `brokerage` is an investment type. A `crypto` balance is a held asset with no trade history, so it has no FIFO book and is never reported as a priced position; see [source layout and feature availability](#source-layout-and-feature-availability).
+
 `portfolio_id` is blank or references a `portfolios` row, and is described with that tab below.
 
 ### `portfolios`
@@ -83,7 +85,7 @@ Each account has one currency. A transaction's `currency` must equal its account
 
 Rows whose `import_id` references an import other than `committed` are excluded from all balances, cash-flow, holdings, and analytics until their import commits or reconciliation removes them.
 
-A `transfer_id` appears on exactly two `transfer` transactions in different accounts, with the same currency and amounts that sum to zero. Cross-currency cash transfers are not supported in v1.
+A `transfer_id` appears on exactly two `transfer` transactions in different accounts, with the same currency and amounts that sum to zero. Cross-currency cash transfers are not supported in v1; moving money between two of a user's own accounts in different currencies is specified as a versioned extension under [planned cross-currency movements](#planned-cross-currency-movements) and is not accepted by the current domain.
 
 A blank `trade_id` is an ordinary cash row. A non-blank `trade_id` marks the row as the settlement of that trade and is validated against it, as described under `trades`. A settlement row is excluded from cash flow for the same reason a transfer is: buying an asset moves money between a user's own cash and their position rather than spending or earning it. It still changes the account balance.
 
@@ -175,11 +177,40 @@ Consolidation will need separate source tracker/entity provenance, explicit acco
 
 Ship concrete columns, validation, migration/backup behavior, and runnable round-trip and finance checks together with the implementing release. Keep UUIDs, dates, minor-unit text encoding, and the no-formulas/no-external-links rules unchanged.
 
+## Planned cross-currency movements
+
+A currency exchange between two of a user's own accounts — a Revolut pocket exchange, a brokerage funding conversion — is one movement recorded in two rows whose currencies differ. `transfer_id` cannot carry it: its legs must share a currency and sum to zero. This section specifies the extension that can. It is not accepted by the current domain and lands with its implementing release, which raises `format_version` to `2`.
+
+`transactions` gains one column:
+
+`exchange_id`
+
+A blank `exchange_id` is an ordinary cash row. A non-blank one appears on exactly two transactions, in different accounts, whose currencies differ. A row carries `transfer_id` or `exchange_id`, never both: they describe the same movement under two incompatible rules. A settlement row carries neither, for the reason given under `trades`.
+
+No rate is stored, and none is required. The two legs record the amounts that actually moved, each in its own account's currency and minor units, so the movement is exact as recorded and no rounding rule applies to it. The implied rate is derivable as the quotient of the two amounts and is never written back into `fx_rates`: it is one user's execution, not a market observation, and reports must not select it as one. A pair is therefore valid without any `fx_rates` row, which is what keeps an exchange recordable on a date the user has no rate for.
+
+Validation, in addition to the ordinary per-row rules:
+
+- Exactly two rows share the `exchange_id`. One, three, or more is an error, as it is for a transfer.
+- The two rows are in different accounts, and those accounts' currencies differ. Two accounts in one currency are a transfer and must use `transfer_id`.
+- Each row's `currency` equals its account's currency, as for every transaction.
+- One amount is negative and the other positive, and neither is zero. The amounts do not sum to zero and must not be checked against each other: they are different currencies, and any comparison between them would need a rate the format does not store.
+- Each leg carries a `transfer` category, as transfer legs do. Cash flow then excludes both by the rule it already applies to transfer categories, and a row bearing a transfer category still requires one of `transfer_id` or `exchange_id` — an accidental category on an ordinary row remains an error rather than a silently hidden amount.
+
+Reporting treatment follows the existing rules rather than adding any:
+
+- Cash flow excludes both legs. Moving money between one's own accounts is neither income nor expense, whatever the currencies.
+- Balances include both legs. Each is a real movement in its own account.
+- Net worth converts each leg's account balance with the report's rate provider on the valuation date, exactly as it converts every other balance. The difference between the executed rate and the valuation rate is an FX result the v1 model does not report; it is visible in the balances, not as a gain figure.
+- The two legs may carry different booking dates. A valuation between them is unavailable, for the same reason a transfer's is: the money has left one account and not yet arrived in the other.
+- Bank identity and fingerprints are unchanged. Each leg is its own row with its own `row_fingerprint`, and `exchange_id` is not a fingerprint input.
+
+Ship the column, validation, the `format_version` migration with its backup path, and runnable checks for the pairing, cash-flow exclusion, and split-date valuation rules together in one release.
+
 ## Planned column extensions
 
 These versioned extensions are planned; they are not accepted by the current domain and land with their implementing releases:
 
-- `accounts`: a broader `type` set (`checking | savings | cash | brokerage | crypto`).
 - `transactions`: `value_date` alongside the booking date, `counterparty`, and `modified_at`.
 - `trades`: `settlement_date`, an explicit `gross_minor` recorded so totals do not depend on rounding, `tax_minor`, and `fee_currency`. Multiple fees per trade are summed; a `TradeFees` sheet is a future explicit schema extension, not scaffolded now.
 - `instruments`: `isin`, `exchange_mic`, optional `price_provider` (per-instrument override; empty means the per-type default), and optional `provider_symbol` for a provider's differing ticker notation.

@@ -336,7 +336,7 @@ void main() {
         priceProvider: 'stooq',
         rateProvider: 'ecb',
         asOf: parseIsoDate(date),
-      );
+      ).totalMinor;
       expect(at('2026-03-11'), isNull);
       // Before the trade it is plain cash; after settlement, the position.
       expect(at('2026-03-09'), 10000);
@@ -363,7 +363,7 @@ void main() {
         priceProvider: 'stooq',
         rateProvider: 'ecb',
         asOf: parseIsoDate(date),
-      );
+      ).totalMinor;
       expect(at('2026-03-11'), isNull);
       expect(at('2026-03-09'), 10000);
       expect(at('2026-03-12'), 10000);
@@ -389,7 +389,7 @@ void main() {
           priceProvider: 'stooq',
           rateProvider: 'ecb',
           asOf: parseIsoDate('2026-03-31'),
-        ),
+        ).totalMinor,
         22000,
       );
     });
@@ -524,12 +524,14 @@ void main() {
   });
 
   group('netWorth', () {
-    Minor? netWorth(TrackerDocument doc) => FinanceEngine.netWorth(
+    NetWorth report(TrackerDocument doc) => FinanceEngine.netWorth(
       doc,
       priceProvider: 'stooq',
       rateProvider: 'ecb',
       asOf: parseIsoDate('2026-03-31'),
     );
+
+    Minor? netWorth(TrackerDocument doc) => report(doc).totalMinor;
 
     // The buy's settlement cash leaves the account as its own transaction,
     // linked by trade_id as `docs/spreadsheet-format.md` requires. Without it
@@ -580,15 +582,48 @@ void main() {
     });
 
     test('is unavailable, not zero, when a position has no price', () {
-      expect(
-        netWorth(
-          _doc(
-            transactions: funded,
-            trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
-          ),
+      final result = report(
+        _doc(
+          transactions: funded,
+          trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
         ),
-        isNull,
       );
+      expect(result.totalMinor, isNull);
+      // The cause is named: a bare null leaves the user to guess which price
+      // to add, which `docs/architecture.md` refuses.
+      expect(result.unavailable, ['No price for ins-1 on 2026-03-31']);
+    });
+
+    test('names every cause, not only the first', () {
+      // The position is quoted in USD with no rate to EUR, and a transfer left
+      // one account on the 30th and lands in the other in April, so on the
+      // valuation date it is recorded nowhere. Both are the user's to fix.
+      final result = report(
+        _doc(
+          currencies: const {'EUR': 2, 'USD': 2},
+          instrument: _usdEtf,
+          transactions: [
+            ...funded,
+            _tx('t3', -5000,
+                categoryId: 'cat-3',
+                transferId: 'trf-1',
+                bookedOn: '2026-03-30'),
+            _tx('t4', 5000,
+                accountId: 'acc-2',
+                categoryId: 'cat-3',
+                transferId: 'trf-1',
+                bookedOn: '2026-04-02'),
+          ],
+          trades: [_trade('tr1', TradeSide.buy, '2', 10000)],
+          prices: [_price(11000, currency: 'USD')],
+        ),
+      );
+      expect(result.isComplete, isFalse);
+      expect(result.totalMinor, isNull);
+      expect(result.unavailable, [
+        'A trade or transfer is only half recorded on 2026-03-31',
+        'No rate from USD to EUR on 2026-03-31',
+      ]);
     });
   });
 }
